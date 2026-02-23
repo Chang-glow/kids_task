@@ -419,7 +419,7 @@ input:focus, select:focus {
 <div class="container">
   <!-- 英雄标题 -->
   <div class="hero">
-    <h1>🌟超级任务基地🌟</h1>
+    <h1>🌟 超级任务基地 🌟</h1>
     <p>完成任务赢积分，积分可以换奖励！加油吧！💪</p>
   </div>
 
@@ -465,9 +465,12 @@ input:focus, select:focus {
               <option value="✏️">✏️ 作业</option>
               <option value="🧹">🧹 家务</option>
               <option value="🏃">🏃 运动</option>
+              <option value="🎵">🎵 练琴</option>
               <option value="🌱">🌱 浇花</option>
               <option value="🍳">🍳 帮厨</option>
+              <option value="🛁">🛁 洗澡</option>
               <option value="😴">😴 早睡</option>
+              <option value="🐶">🐶 遛狗</option>
             </select>
           </div>
           <div class="form-group" style="justify-content:flex-end">
@@ -482,38 +485,6 @@ input:focus, select:focus {
         <div class="empty"><span class="ei">🎯</span>还没有任务，快添加吧！</div>
       </div>
     </div>
-
-    <!-- 惩罚扣分区 -->
-<div class="card" style="margin-top:20px;">
-  <div class="card-title">🚫 违规扣分</div>
-  <div style="padding:16px; background:#fef2f2; border-radius:16px;">
-    <div class="form-row">
-      <div class="form-group" style="flex:2">
-        <label>违规原因</label>
-        <input type="text" id="punishName" placeholder="例如：打人、说谎" maxlength="20">
-      </div>
-      <div class="form-group" style="flex:1">
-        <label>扣除积分</label>
-        <input type="number" id="punishPoints" placeholder="10" min="1" max="999">
-      </div>
-    </div>
-    <div class="form-row">
-      <div class="form-group">
-        <label>选个 Emoji</label>
-        <select id="punishEmoji">
-          <option value="😡">😡 发脾气</option>
-          <option value="🚫">🚫 违规</option>
-          <option value="👂🏻">👂🏻 不听话</option>
-        </select>
-      </div>
-      <div class="form-group" style="justify-content:flex-end">
-        <label>&nbsp;</label>
-        <button class="btn btn-danger" style="background:linear-gradient(135deg,#ef4444,#f97316);color:white;box-shadow:0 4px 12px rgba(239,68,68,0.35)" onclick="addPunish()">⚡ 执行扣分</button>
-      </div>
-    </div>
-  </div>
-</div>
-
 
     <!-- 商城区 -->
     <div class="card">
@@ -541,9 +512,9 @@ input:focus, select:focus {
               <option value="🎡">🎡 出去玩</option>
               <option value="📱">📱 手机时间</option>
               <option value="🎨">🎨 画画</option>
-              <option value="🍽️">🍽️ 美味大餐</option>
+              <option value="🍦">🍦 吃冰淇淋</option>
               <option value="🎠">🎠 游乐场</option>
-              <option value="📚">📚 看书买书</option>
+              <option value="📚">📚 买书</option>
               <option value="🧸">🧸 买玩具</option>
             </select>
           </div>
@@ -870,24 +841,6 @@ async function addReward() {
   } catch(e) { showToast(e.message, 'error'); }
 }
 
-/* ==================== 惩罚扣分 ==================== */
-async function addPunish() {
-  const name = document.getElementById('punishName').value.trim();
-  const pts = parseInt(document.getElementById('punishPoints').value);
-  const emoji = document.getElementById('punishEmoji').value;
-  if (!name) return showToast('请输入违规原因 📝', 'error');
-  if (!pts || pts < 1) return showToast('扣分值必须大于0 🔢', 'error');
-  try {
-    const res = await fetchAPI('/punish', 'POST', {
-      name, emoji, penalty_points: pts
-    });
-    document.getElementById('punishName').value = '';
-    document.getElementById('punishPoints').value = '';
-    showToast(res.message, 'error'); // 用红色 toast 提示
-    await Promise.all([loadUser(), loadLogs()]);
-  } catch(e) { showToast(e.message, 'error'); }
-}
-
 async function redeemReward(id, name, cost) {
   // 前端预校验（后端也会校验，双重保险）
   if (totalPointsGlobal < cost) {
@@ -926,23 +879,16 @@ async function loadLogs() {
     el.innerHTML = '<div class="empty"><span class="ei">📭</span>暂无流水记录</div>';
     return;
   }
-  el.innerHTML = logs.map(l => {
-    // punish 和 spend 都用橙红色，但图标不同
-    const isEarn = l.action === 'earn';
-    const icon = l.action === 'punish' ? '🚫' : isEarn ? '✅' : '🎁';
-    const colorClass = isEarn ? 'earn' : 'spend'; // punish 复用 spend 的红色样式
-    const sign = isEarn ? '+' : '-';
-    return `
-      <div class="log-item ${colorClass}">
-        <span>${icon}</span>
-        <span>${escHtml(l.description)}</span>
-        <span class="log-amount" style="color:${isEarn ? '#16a34a' : '#ea580c'}">
-          ${sign}${l.amount}
-        </span>
-        <span class="log-time">${formatDate(l.created_at)}</span>
-      </div>
-    `;
-  }).join('');
+  el.innerHTML = logs.map(l => `
+    <div class="log-item ${l.action}">
+      <span>${l.action === 'earn' ? '✅' : '🎁'}</span>
+      <span>${escHtml(l.description)}</span>
+      <span class="log-amount" style="color:${l.action==='earn'?'#16a34a':'#ea580c'}">
+        ${l.action === 'earn' ? '+' : '-'}${l.amount}
+      </span>
+      <span class="log-time">${formatDate(l.created_at)}</span>
+    </div>
+  `).join('');
 }
 
 /* ==================== 辅助：防XSS ==================== */

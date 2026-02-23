@@ -40,7 +40,7 @@ def init_db():
     conn = get_db()
     cur = conn.cursor()
 
-    # 用户/积分表（系统只有一个孩子，用 id=1 的记录作为主体）
+    # 用户/积分表
     cur.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY,
@@ -49,7 +49,7 @@ def init_db():
         )
     """)
 
-    # 任务表
+    # 任务表（含可重复标志和完成时间）
     cur.execute("""
         CREATE TABLE IF NOT EXISTS tasks (
             id SERIAL PRIMARY KEY,
@@ -57,9 +57,14 @@ def init_db():
             emoji TEXT NOT NULL,
             base_points INTEGER NOT NULL,
             status TEXT NOT NULL DEFAULT 'pending',
+            is_repeatable BOOLEAN NOT NULL DEFAULT false,
+            completed_at TIMESTAMP,
             created_at TIMESTAMP NOT NULL
         )
     """)
+    # 兼容已存在的旧表：尝试新增列，若已存在则忽略
+    cur.execute("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS is_repeatable BOOLEAN NOT NULL DEFAULT false")
+    cur.execute("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP")
 
     # 奖励商城表
     cur.execute("""
@@ -83,7 +88,7 @@ def init_db():
         )
     """)
 
-    # 初始化默认用户（若不存在）
+    # 初始化默认用户
     cur.execute("""
         INSERT INTO users (id, name, total_points)
         VALUES (1, '小主人', 0)
@@ -95,12 +100,12 @@ def init_db():
     if cur.fetchone()['count'] == 0:
         now = datetime.now()
         tasks_data = [
-            ("今日阅读30分钟", "📖", 20, "pending", now),
-            ("整理房间", "🧹", 15, "pending", now),
-            ("完成数学作业", "✏️", 25, "pending", now),
+            ("今日阅读30分钟", "📖", 20, "pending", False, now),
+            ("整理房间", "🧹", 15, "pending", True, now),
+            ("完成数学作业", "✏️", 25, "pending", False, now),
         ]
         cur.executemany(
-            "INSERT INTO tasks (name, emoji, base_points, status, created_at) VALUES (%s, %s, %s, %s, %s)",
+            "INSERT INTO tasks (name, emoji, base_points, status, is_repeatable, created_at) VALUES (%s, %s, %s, %s, %s, %s)",
             tasks_data
         )
 
@@ -128,60 +133,48 @@ init_db()
 
 # ==================== 数据模型（Pydantic） ====================
 
-
 class CompleteTaskRequest(BaseModel):
     task_id: int
     star_rating: int  # 1-5星
-
 
 class AddTaskRequest(BaseModel):
     name: str
     emoji: str
     base_points: int
-
+    is_repeatable: bool = False  # 是否可重复完成，默认否
 
 class AddRewardRequest(BaseModel):
     name: str
     emoji: str
     cost_points: int
 
-
 class RedeemRewardRequest(BaseModel):
     reward_id: int
 
-
 class PunishRequest(BaseModel):
-    name: str        # 惩罚原因名称
-    emoji: str       # 代表 Emoji
-    penalty_points: int  # 扣除积分数
+    name: str
+    emoji: str
+    penalty_points: int
 
 # ==================== 积分计算工具函数 ====================
 
-
 STAR_MULTIPLIERS = {
-    1: 0.5,   # 1星 50%
-    2: 0.6,   # 2星 60%
-    3: 0.8,   # 3星 80%
-    4: 1.0,   # 4星 100%
-    5: 1.2,   # 5星 120%
+    1: 0.5,
+    2: 0.6,
+    3: 0.8,
+    4: 1.0,
+    5: 1.2,
 }
 
 def calculate_final_points(base_points: int, star_rating: int) -> int:
-    """
-    根据基础积分和星级，计算最终得分
-    结果向下取整，防止出现小数积分
-    """
     if star_rating not in STAR_MULTIPLIERS:
         raise ValueError(f"星级必须在1-5之间，收到：{star_rating}")
-    multiplier = STAR_MULTIPLIERS[star_rating]
-    return math.floor(base_points * multiplier)
+    return math.floor(base_points * STAR_MULTIPLIERS[star_rating])
 
 # ==================== API 路由 ====================
 
-
 @app.get("/api/user")
 def get_user():
-    """获取用户信息和总积分"""
     conn = get_db()
     cur = conn.cursor()
     cur.execute("SELECT * FROM users WHERE id = 1")
@@ -192,29 +185,41 @@ def get_user():
 
 @app.get("/api/tasks")
 def get_tasks():
-    """获取所有任务（包括已完成）"""
+    """获取所有任务，查询前自动懒清理过期的非重复已完成任务"""
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT * FROM tasks ORDER BY created_at DESC")
-    tasks = cur.fetchall()
-    conn.close()
-    return [dict(t) for t in tasks]
+    try:
+        # 懒清理：删除「非重复 + 已完成 + 完成日期不是今天」的任务
+        cur.execute("""
+            DELETE FROM tasks
+            WHERE status = 'done'
+              AND is_repeatable = false
+              AND completed_at IS NOT NULL
+              AND DATE(completed_at) < CURRENT_DATE
+        """)
+        cur.execute("SELECT * FROM tasks ORDER BY created_at DESC")
+        tasks = cur.fetchall()
+        conn.commit()
+        return [dict(t) for t in tasks]
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
 
 
 @app.post("/api/tasks")
 def add_task(req: AddTaskRequest):
-    """添加新任务"""
     if req.base_points <= 0:
         raise HTTPException(status_code=400, detail="基础积分必须大于0")
     if len(req.name.strip()) == 0:
         raise HTTPException(status_code=400, detail="任务名称不能为空")
-
     conn = get_db()
     cur = conn.cursor()
     now = datetime.now()
     cur.execute(
-        "INSERT INTO tasks (name, emoji, base_points, status, created_at) VALUES (%s, %s, %s, %s, %s) RETURNING id",
-        (req.name.strip(), req.emoji, req.base_points, "pending", now)
+        "INSERT INTO tasks (name, emoji, base_points, status, is_repeatable, created_at) VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
+        (req.name.strip(), req.emoji, req.base_points, "pending", req.is_repeatable, now)
     )
     task_id = cur.fetchone()['id']
     conn.commit()
@@ -228,17 +233,14 @@ def add_task(req: AddTaskRequest):
 def complete_task(req: CompleteTaskRequest):
     """
     完成任务并评级
-    - 校验任务存在且为pending状态
-    - 计算最终积分（含星级折算）
-    - 更新任务状态、增加总积分、记录流水
+    - 可重复任务：保持 pending，只增加积分并记录流水
+    - 非重复任务：标为 done，增加积分并记录流水
     """
     if req.star_rating not in range(1, 6):
         raise HTTPException(status_code=400, detail="星级评分必须在1到5之间")
-
     conn = get_db()
     cur = conn.cursor()
     try:
-        # 查询任务
         cur.execute("SELECT * FROM tasks WHERE id = %s", (req.task_id,))
         task = cur.fetchone()
         if not task:
@@ -246,34 +248,34 @@ def complete_task(req: CompleteTaskRequest):
         if task["status"] != "pending":
             raise HTTPException(status_code=400, detail="该任务已经完成，不能重复提交")
 
-        # 计算积分
         final_points = calculate_final_points(task["base_points"], req.star_rating)
         multiplier_pct = int(STAR_MULTIPLIERS[req.star_rating] * 100)
         now = datetime.now()
 
-        # 更新任务状态
-        cur.execute("UPDATE tasks SET status = 'done' WHERE id = %s", (req.task_id,))
+        # 可重复任务保持 pending，非重复任务标为 done
+        if task["is_repeatable"]:
+            cur.execute("UPDATE tasks SET completed_at = %s WHERE id = %s", (now, req.task_id))
+            result_message = f"任务完成！获得 {final_points} 积分，明天还能继续 🔄"
+        else:
+            cur.execute("UPDATE tasks SET status = 'done', completed_at = %s WHERE id = %s", (now, req.task_id))
+            result_message = f"太棒了！获得 {final_points} 积分 🎉"
 
-        # 增加总积分
         cur.execute("UPDATE users SET total_points = total_points + %s WHERE id = 1", (final_points,))
 
-        # 记录流水账
         description = f"完成任务「{task['name']}」{req.star_rating}⭐（{multiplier_pct}%）→ +{final_points}分"
         cur.execute(
             "INSERT INTO point_logs (action, amount, description, created_at) VALUES (%s, %s, %s, %s)",
             ("earn", final_points, description, now)
         )
-
         conn.commit()
 
-        # 返回最新用户信息
         cur.execute("SELECT * FROM users WHERE id = 1")
         user = cur.fetchone()
         return {
             "success": True,
             "earned_points": final_points,
             "total_points": user["total_points"],
-            "message": f"太棒了！获得 {final_points} 积分 🎉"
+            "message": result_message
         }
     except HTTPException:
         conn.rollback()
@@ -287,12 +289,10 @@ def complete_task(req: CompleteTaskRequest):
 
 @app.delete("/api/tasks/{task_id}")
 def delete_task(task_id: int):
-    """删除任务"""
     conn = get_db()
     cur = conn.cursor()
     cur.execute("SELECT * FROM tasks WHERE id = %s", (task_id,))
-    task = cur.fetchone()
-    if not task:
+    if not cur.fetchone():
         conn.close()
         raise HTTPException(status_code=404, detail="任务不存在")
     cur.execute("DELETE FROM tasks WHERE id = %s", (task_id,))
@@ -303,7 +303,6 @@ def delete_task(task_id: int):
 
 @app.get("/api/rewards")
 def get_rewards():
-    """获取所有可兑换奖励"""
     conn = get_db()
     cur = conn.cursor()
     cur.execute("SELECT * FROM rewards ORDER BY cost_points ASC")
@@ -314,12 +313,10 @@ def get_rewards():
 
 @app.post("/api/rewards")
 def add_reward(req: AddRewardRequest):
-    """添加新奖励"""
     if req.cost_points <= 0:
         raise HTTPException(status_code=400, detail="所需积分必须大于0")
     if len(req.name.strip()) == 0:
         raise HTTPException(status_code=400, detail="奖励名称不能为空")
-
     conn = get_db()
     cur = conn.cursor()
     now = datetime.now()
@@ -337,20 +334,15 @@ def add_reward(req: AddRewardRequest):
 
 @app.post("/api/rewards/redeem")
 def redeem_reward(req: RedeemRewardRequest):
-    """
-    兑换奖励
-    关键防护：使用数据库事务确保积分不会被扣成负数
-    """
+    """兑换奖励，事务保护不扣成负数"""
     conn = get_db()
     cur = conn.cursor()
     try:
-        # 查询奖励
         cur.execute("SELECT * FROM rewards WHERE id = %s", (req.reward_id,))
         reward = cur.fetchone()
         if not reward:
             raise HTTPException(status_code=404, detail="奖励不存在")
 
-        # 查询当前积分
         cur.execute("SELECT * FROM users WHERE id = 1")
         user = cur.fetchone()
         current_points = user["total_points"]
@@ -363,24 +355,19 @@ def redeem_reward(req: RedeemRewardRequest):
             )
 
         now = datetime.now()
-
-        # 扣除积分
         cur.execute("UPDATE users SET total_points = total_points - %s WHERE id = 1", (cost,))
 
-        # 二次校验（理论上不应发生）
         cur.execute("SELECT total_points FROM users WHERE id = 1")
         user_after = cur.fetchone()
         if user_after["total_points"] < 0:
             conn.rollback()
             raise HTTPException(status_code=400, detail="积分异常，兑换失败")
 
-        # 记录消耗流水
         description = f"兑换奖励「{reward['name']}」{reward['emoji']} → -{cost}分"
         cur.execute(
             "INSERT INTO point_logs (action, amount, description, created_at) VALUES (%s, %s, %s, %s)",
             ("spend", cost, description, now)
         )
-
         conn.commit()
 
         return {
@@ -401,12 +388,10 @@ def redeem_reward(req: RedeemRewardRequest):
 
 @app.delete("/api/rewards/{reward_id}")
 def delete_reward(reward_id: int):
-    """删除奖励"""
     conn = get_db()
     cur = conn.cursor()
     cur.execute("SELECT * FROM rewards WHERE id = %s", (reward_id,))
-    reward = cur.fetchone()
-    if not reward:
+    if not cur.fetchone():
         conn.close()
         raise HTTPException(status_code=404, detail="奖励不存在")
     cur.execute("DELETE FROM rewards WHERE id = %s", (reward_id,))
@@ -417,39 +402,28 @@ def delete_reward(reward_id: int):
 
 @app.post("/api/punish")
 def punish_user(req: PunishRequest):
-    """
-    惩罚扣分
-    使用 max(0, current - penalty) 确保积分不会扣成负数
-    """
+    """惩罚扣分，使用 max(0, current - penalty) 确保不扣成负数"""
     if req.penalty_points <= 0:
         raise HTTPException(status_code=400, detail="扣分值必须大于0")
     if len(req.name.strip()) == 0:
         raise HTTPException(status_code=400, detail="惩罚原因不能为空")
-
     conn = get_db()
     cur = conn.cursor()
     try:
-        # 查询当前积分
         cur.execute("SELECT total_points FROM users WHERE id = 1")
         user = cur.fetchone()
         current_points = user["total_points"]
-
-        # 计算扣后积分，最低为 0，绝不扣成负数
         new_points = max(0, current_points - req.penalty_points)
-        actual_deducted = current_points - new_points  # 实际扣除量（可能小于请求值）
+        actual_deducted = current_points - new_points
 
         now = datetime.now()
-
-        # 更新积分
         cur.execute("UPDATE users SET total_points = %s WHERE id = 1", (new_points,))
 
-        # 记录惩罚流水
         description = f"{req.emoji} 惩罚「{req.name.strip()}」→ -{actual_deducted}分"
         cur.execute(
             "INSERT INTO point_logs (action, amount, description, created_at) VALUES (%s, %s, %s, %s)",
             ("punish", actual_deducted, description, now)
         )
-
         conn.commit()
 
         return {
@@ -470,7 +444,6 @@ def punish_user(req: PunishRequest):
 
 @app.get("/api/logs")
 def get_logs():
-    """获取积分流水记录（最近100条）"""
     conn = get_db()
     cur = conn.cursor()
     cur.execute("SELECT * FROM point_logs ORDER BY created_at DESC LIMIT 100")
