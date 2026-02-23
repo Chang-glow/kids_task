@@ -1,0 +1,917 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🌟 我的超级任务基地</title>
+<link href="https://fonts.googleapis.com/css2?family=ZCOOL+KuaiLe&family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+/* ===== CSS 变量 & 全局 ===== */
+:root {
+  --sky: #87CEEB;
+  --sun: #FFD93D;
+  --grass: #6BCB77;
+  --cloud: #ffffff;
+  --orange: #FF6B35;
+  --pink: #FF8FAB;
+  --purple: #C084FC;
+  --mint: #34D399;
+  --yellow: #FCD34D;
+  --card-bg: rgba(255,255,255,0.92);
+  --shadow: 0 8px 32px rgba(100,60,0,0.13);
+  --radius: 24px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Nunito', 'ZCOOL KuaiLe', sans-serif;
+  min-height: 100vh;
+  background: linear-gradient(180deg, #87CEEB 0%, #B8E4FF 35%, #D4F0C0 70%, #A8D8A8 100%);
+  position: relative;
+  overflow-x: hidden;
+}
+
+/* 背景装饰云朵 */
+.clouds {
+  position: fixed; top: 0; left: 0; width: 100%; height: 200px;
+  pointer-events: none; z-index: 0;
+}
+.cloud {
+  position: absolute;
+  background: white;
+  border-radius: 50px;
+  opacity: 0.85;
+  animation: float linear infinite;
+}
+.cloud::before, .cloud::after {
+  content: '';
+  position: absolute;
+  background: white;
+  border-radius: 50%;
+}
+.c1 { width: 120px; height: 40px; top: 30px; animation-duration: 35s; }
+.c1::before { width: 60px; height: 60px; top: -30px; left: 15px; }
+.c1::after { width: 40px; height: 40px; top: -20px; left: 55px; }
+.c2 { width: 90px; height: 30px; top: 70px; animation-duration: 45s; animation-delay: -15s; }
+.c2::before { width: 45px; height: 45px; top: -22px; left: 10px; }
+.c2::after { width: 30px; height: 30px; top: -15px; left: 40px; }
+.c3 { width: 150px; height: 50px; top: 20px; animation-duration: 55s; animation-delay: -25s; }
+.c3::before { width: 70px; height: 70px; top: -35px; left: 20px; }
+.c3::after { width: 50px; height: 50px; top: -25px; left: 75px; }
+
+@keyframes float {
+  from { transform: translateX(-200px); }
+  to { transform: translateX(calc(100vw + 200px)); }
+}
+
+/* 太阳 */
+.sun {
+  position: fixed; top: 20px; right: 60px;
+  width: 80px; height: 80px;
+  background: radial-gradient(circle, #FFE066 40%, #FFD93D 70%, #FFB800 100%);
+  border-radius: 50%;
+  box-shadow: 0 0 40px 10px rgba(255,217,61,0.5);
+  z-index: 0;
+  animation: sunPulse 4s ease-in-out infinite;
+}
+@keyframes sunPulse {
+  0%,100% { box-shadow: 0 0 40px 10px rgba(255,217,61,0.5); }
+  50% { box-shadow: 0 0 60px 20px rgba(255,217,61,0.7); }
+}
+
+/* 主容器 */
+.container {
+  position: relative; z-index: 1;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 20px 16px 60px;
+}
+
+/* 顶部英雄区 */
+.hero {
+  text-align: center;
+  padding: 30px 20px 20px;
+  margin-bottom: 24px;
+}
+.hero h1 {
+  font-size: clamp(2rem, 5vw, 3.5rem);
+  font-family: 'ZCOOL KuaiLe', sans-serif;
+  color: #2D5016;
+  text-shadow: 3px 3px 0 rgba(255,255,255,0.7), 0 0 30px rgba(107,203,119,0.4);
+  letter-spacing: 4px;
+  margin-bottom: 8px;
+}
+.hero p { color: #4a7c36; font-size: 1.1rem; font-weight: 700; }
+
+/* 积分展示卡 */
+.points-card {
+  background: linear-gradient(135deg, #FF6B35 0%, #FF8FAB 50%, #C084FC 100%);
+  border-radius: 28px;
+  padding: 28px 36px;
+  margin-bottom: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-shadow: 0 12px 40px rgba(255,107,53,0.4), 0 0 0 4px rgba(255,255,255,0.3);
+  position: relative;
+  overflow: hidden;
+}
+.points-card::before {
+  content: '⭐⭐⭐';
+  position: absolute; right: -20px; top: -20px;
+  font-size: 80px; opacity: 0.15;
+  transform: rotate(20deg);
+}
+.points-info h2 {
+  color: rgba(255,255,255,0.9);
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 2px;
+  margin-bottom: 4px;
+}
+.points-number {
+  font-size: clamp(3rem, 8vw, 5rem);
+  font-weight: 900;
+  color: white;
+  text-shadow: 0 4px 12px rgba(0,0,0,0.2);
+  line-height: 1;
+  transition: transform 0.3s cubic-bezier(0.34,1.56,0.64,1);
+}
+.points-number.pop { animation: popAnim 0.4s cubic-bezier(0.34,1.56,0.64,1); }
+@keyframes popAnim {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.3); }
+  100% { transform: scale(1); }
+}
+.points-icon { font-size: 4rem; filter: drop-shadow(0 4px 8px rgba(0,0,0,0.2)); }
+
+/* 网格布局 */
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+@media (max-width: 700px) { .grid-2 { grid-template-columns: 1fr; } }
+
+/* 卡片通用 */
+.card {
+  background: var(--card-bg);
+  border-radius: var(--radius);
+  padding: 24px;
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(10px);
+  border: 2px solid rgba(255,255,255,0.6);
+}
+.card-title {
+  font-size: 1.3rem;
+  font-weight: 900;
+  margin-bottom: 18px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #2d3748;
+}
+
+/* 表单元素 */
+.form-row { display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+.form-group { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 120px; }
+.form-group label { font-size: 0.78rem; font-weight: 800; color: #718096; letter-spacing: 1px; text-transform: uppercase; }
+input[type="text"], input[type="number"], select {
+  padding: 10px 14px;
+  border: 2px solid #e2e8f0;
+  border-radius: 14px;
+  font-family: inherit;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #2d3748;
+  background: white;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  outline: none;
+  width: 100%;
+}
+input:focus, select:focus {
+  border-color: var(--purple);
+  box-shadow: 0 0 0 3px rgba(192,132,252,0.2);
+}
+
+/* 按钮 */
+.btn {
+  padding: 11px 22px;
+  border: none;
+  border-radius: 14px;
+  font-family: inherit;
+  font-size: 0.95rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s, opacity 0.15s;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.btn:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,0.15); }
+.btn:active { transform: translateY(0); }
+.btn-primary { background: linear-gradient(135deg, #6BCB77, #34D399); color: white; box-shadow: 0 4px 12px rgba(107,203,119,0.4); }
+.btn-orange { background: linear-gradient(135deg, #FF6B35, #FF8FAB); color: white; box-shadow: 0 4px 12px rgba(255,107,53,0.35); }
+.btn-purple { background: linear-gradient(135deg, #C084FC, #818CF8); color: white; box-shadow: 0 4px 12px rgba(192,132,252,0.35); }
+.btn-sm { padding: 7px 14px; font-size: 0.85rem; border-radius: 10px; }
+.btn-danger { background: #fee2e2; color: #ef4444; }
+.btn-danger:hover { background: #fecaca; box-shadow: 0 4px 12px rgba(239,68,68,0.2); }
+
+/* 任务列表 */
+.task-list { display: flex; flex-direction: column; gap: 10px; }
+.task-item {
+  background: linear-gradient(135deg, #f8fafc, #f1f5f9);
+  border-radius: 16px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 2px solid transparent;
+  transition: border-color 0.2s, transform 0.2s;
+  animation: slideIn 0.3s cubic-bezier(0.34,1.56,0.64,1);
+}
+.task-item:hover { border-color: var(--mint); transform: translateX(4px); }
+.task-item.done { opacity: 0.55; background: linear-gradient(135deg, #f0fdf4, #dcfce7); }
+.task-item .emoji { font-size: 1.8rem; flex-shrink: 0; }
+.task-item .info { flex: 1; min-width: 0; }
+.task-item .name { font-weight: 800; color: #1a202c; font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.task-item .pts { font-size: 0.8rem; color: #718096; font-weight: 700; }
+.task-item.done .name { text-decoration: line-through; }
+.task-actions { display: flex; gap: 6px; flex-shrink: 0; }
+@keyframes slideIn {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* 奖励网格 */
+.reward-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+.reward-item {
+  background: linear-gradient(135deg, #fef9f0, #fef3c7);
+  border-radius: 18px;
+  padding: 18px 14px;
+  text-align: center;
+  border: 2px solid transparent;
+  transition: all 0.2s;
+  cursor: default;
+  animation: slideIn 0.3s cubic-bezier(0.34,1.56,0.64,1);
+}
+.reward-item:hover { border-color: var(--sun); transform: translateY(-4px); box-shadow: 0 8px 24px rgba(255,217,61,0.3); }
+.reward-item .r-emoji { font-size: 2.5rem; margin-bottom: 8px; }
+.reward-item .r-name { font-weight: 800; color: #1a202c; font-size: 0.9rem; margin-bottom: 6px; }
+.reward-item .r-cost { font-size: 0.85rem; font-weight: 800; color: var(--orange); margin-bottom: 10px; }
+.reward-item .btn { width: 100%; justify-content: center; }
+
+/* 流水记录 */
+.log-section { margin-bottom: 20px; }
+.log-toggle {
+  width: 100%;
+  text-align: left;
+  background: var(--card-bg);
+  border: 2px solid rgba(255,255,255,0.6);
+  border-radius: var(--radius);
+  padding: 16px 24px;
+  font-family: inherit;
+  font-size: 1.1rem;
+  font-weight: 800;
+  color: #4a5568;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-shadow: var(--shadow);
+  transition: background 0.2s;
+}
+.log-toggle:hover { background: white; }
+.log-body { display: none; padding-top: 12px; }
+.log-body.open { display: block; }
+.log-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  margin-bottom: 6px;
+  border-radius: 12px;
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+.log-item.earn { background: #f0fdf4; color: #166534; border-left: 4px solid #22c55e; }
+.log-item.spend { background: #fff7ed; color: #9a3412; border-left: 4px solid #f97316; }
+.log-item .log-amount { margin-left: auto; font-size: 1rem; font-weight: 900; white-space: nowrap; }
+.log-item .log-time { color: #9ca3af; font-size: 0.75rem; }
+
+/* ===== 模态框（评级弹窗）===== */
+.modal-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.5);
+  backdrop-filter: blur(6px);
+  z-index: 1000;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+.modal-overlay.open { display: flex; }
+.modal {
+  background: white;
+  border-radius: 32px;
+  padding: 36px 32px;
+  max-width: 420px;
+  width: 100%;
+  box-shadow: 0 24px 60px rgba(0,0,0,0.25);
+  animation: modalPop 0.35s cubic-bezier(0.34,1.56,0.64,1);
+  text-align: center;
+}
+@keyframes modalPop {
+  from { opacity: 0; transform: scale(0.8) translateY(20px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+.modal h3 { font-size: 1.5rem; font-weight: 900; color: #1a202c; margin-bottom: 6px; }
+.modal .task-preview { font-size: 2.5rem; margin: 12px 0; }
+.modal .task-name-preview { font-size: 1rem; color: #718096; font-weight: 700; margin-bottom: 24px; }
+
+/* 星级选择器 */
+.stars-wrapper { margin: 20px 0; }
+.stars-wrapper p { font-size: 0.85rem; color: #9ca3af; margin-bottom: 10px; font-weight: 700; }
+.stars { display: flex; justify-content: center; gap: 8px; margin-bottom: 10px; }
+.star {
+  font-size: 2.8rem;
+  cursor: pointer;
+  transition: transform 0.15s, filter 0.15s;
+  filter: grayscale(1) opacity(0.3);
+  line-height: 1;
+  user-select: none;
+}
+.star.active, .star.hover { filter: none; transform: scale(1.15); }
+.star:hover { transform: scale(1.25); }
+.star-desc {
+  min-height: 48px;
+  padding: 10px 16px;
+  background: linear-gradient(135deg, #f0fdf4, #dcfce7);
+  border-radius: 12px;
+  font-size: 0.88rem;
+  font-weight: 800;
+  color: #166534;
+  transition: all 0.2s;
+}
+.star-desc.danger { background: linear-gradient(135deg, #fef3c7, #fde68a); color: #92400e; }
+
+/* 预览积分 */
+.points-preview {
+  margin: 16px 0;
+  padding: 14px;
+  background: linear-gradient(135deg, #ede9fe, #ddd6fe);
+  border-radius: 14px;
+  font-size: 1.1rem;
+  font-weight: 800;
+  color: #5b21b6;
+}
+.points-preview .big { font-size: 2rem; font-weight: 900; color: #7c3aed; }
+
+.modal-actions { display: flex; gap: 10px; margin-top: 20px; }
+.modal-actions .btn { flex: 1; justify-content: center; }
+
+/* 提示 Toast */
+.toast-container {
+  position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
+  z-index: 2000;
+  display: flex; flex-direction: column-reverse; align-items: center; gap: 10px;
+  pointer-events: none;
+}
+.toast {
+  padding: 12px 24px;
+  border-radius: 100px;
+  font-family: inherit;
+  font-size: 0.95rem;
+  font-weight: 800;
+  box-shadow: 0 8px 30px rgba(0,0,0,0.2);
+  animation: toastIn 0.4s cubic-bezier(0.34,1.56,0.64,1), toastOut 0.3s ease 2.7s forwards;
+  pointer-events: none;
+}
+.toast.success { background: linear-gradient(135deg, #6BCB77, #34D399); color: white; }
+.toast.error { background: linear-gradient(135deg, #FF6B35, #FF8FAB); color: white; }
+@keyframes toastIn {
+  from { opacity: 0; transform: translateY(20px) scale(0.9); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes toastOut {
+  to { opacity: 0; transform: translateY(-10px) scale(0.9); }
+}
+
+/* 空状态 */
+.empty { text-align: center; padding: 28px; color: #a0aec0; font-weight: 700; font-size: 0.95rem; }
+.empty .ei { font-size: 2.5rem; display: block; margin-bottom: 8px; }
+
+/* 进度条（积分相对满分） */
+.progress-wrap { margin-top: 14px; }
+.progress-label { font-size: 0.78rem; color: rgba(255,255,255,0.8); font-weight: 700; margin-bottom: 6px; display: flex; justify-content: space-between; }
+.progress-bar { height: 10px; background: rgba(255,255,255,0.25); border-radius: 100px; overflow: hidden; }
+.progress-fill { height: 100%; background: white; border-radius: 100px; transition: width 0.6s cubic-bezier(0.34,1.56,0.64,1); }
+</style>
+</head>
+<body>
+
+<!-- 背景装饰 -->
+<div class="clouds">
+  <div class="cloud c1" style="left:-150px"></div>
+  <div class="cloud c2" style="left:30%"></div>
+  <div class="cloud c3" style="left:65%"></div>
+</div>
+<div class="sun"></div>
+
+<div class="container">
+  <!-- 英雄标题 -->
+  <div class="hero">
+    <h1>🌟 超级任务基地 🌟</h1>
+    <p>完成任务赢积分，积分可以换奖励！加油吧！💪</p>
+  </div>
+
+  <!-- 积分总览卡 -->
+  <div class="points-card">
+    <div class="points-info">
+      <h2>🪙 我的总积分</h2>
+      <div class="points-number" id="totalPoints">0</div>
+      <div class="progress-wrap">
+        <div class="progress-label">
+          <span>距离下个大奖励</span>
+          <span id="nextGoalPts">-</span>
+        </div>
+        <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+      </div>
+    </div>
+    <div class="points-icon">🏆</div>
+  </div>
+
+  <!-- 任务区 + 商城区 双列 -->
+  <div class="grid-2">
+    <!-- 任务区 -->
+    <div class="card">
+      <div class="card-title">📋 我的任务</div>
+
+      <!-- 添加任务表单 -->
+      <div style="margin-bottom:18px; padding:16px; background:#f8fafc; border-radius:16px;">
+        <div class="form-row">
+          <div class="form-group" style="flex:2">
+            <label>任务名称</label>
+            <input type="text" id="taskName" placeholder="例如：完成作业" maxlength="20">
+          </div>
+          <div class="form-group" style="flex:1">
+            <label>基础积分</label>
+            <input type="number" id="taskPoints" placeholder="20" min="1" max="999">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>选个 Emoji</label>
+            <select id="taskEmoji">
+              <option value="📖">📖 阅读</option>
+              <option value="✏️">✏️ 作业</option>
+              <option value="🧹">🧹 家务</option>
+              <option value="🏃">🏃 运动</option>
+              <option value="🎵">🎵 练琴</option>
+              <option value="🌱">🌱 浇花</option>
+              <option value="🍳">🍳 帮厨</option>
+              <option value="🛁">🛁 洗澡</option>
+              <option value="😴">😴 早睡</option>
+              <option value="🐶">🐶 遛狗</option>
+            </select>
+          </div>
+          <div class="form-group" style="justify-content:flex-end">
+            <label>&nbsp;</label>
+            <button class="btn btn-primary" onclick="addTask()">➕ 添加任务</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 任务列表 -->
+      <div class="task-list" id="taskList">
+        <div class="empty"><span class="ei">🎯</span>还没有任务，快添加吧！</div>
+      </div>
+    </div>
+
+    <!-- 商城区 -->
+    <div class="card">
+      <div class="card-title">🏪 奖励商城</div>
+
+      <!-- 添加奖励表单 -->
+      <div style="margin-bottom:18px; padding:16px; background:#f8fafc; border-radius:16px;">
+        <div class="form-row">
+          <div class="form-group" style="flex:2">
+            <label>奖励名称</label>
+            <input type="text" id="rewardName" placeholder="例如：看电视" maxlength="20">
+          </div>
+          <div class="form-group" style="flex:1">
+            <label>消耗积分</label>
+            <input type="number" id="rewardCost" placeholder="50" min="1" max="9999">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>选个 Emoji</label>
+            <select id="rewardEmoji">
+              <option value="📺">📺 看电视</option>
+              <option value="🎮">🎮 玩游戏</option>
+              <option value="🍬">🍬 零食</option>
+              <option value="🎡">🎡 出去玩</option>
+              <option value="📱">📱 手机时间</option>
+              <option value="🎨">🎨 画画</option>
+              <option value="🍦">🍦 吃冰淇淋</option>
+              <option value="🎠">🎠 游乐场</option>
+              <option value="📚">📚 买书</option>
+              <option value="🧸">🧸 买玩具</option>
+            </select>
+          </div>
+          <div class="form-group" style="justify-content:flex-end">
+            <label>&nbsp;</label>
+            <button class="btn btn-orange" onclick="addReward()">➕ 添加奖励</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 奖励网格 -->
+      <div class="reward-grid" id="rewardGrid">
+        <div class="empty" style="grid-column:1/-1"><span class="ei">🎁</span>还没有奖励，快来设定吧！</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 流水账记录（可折叠） -->
+  <div class="log-section">
+    <button class="log-toggle" onclick="toggleLog()">
+      <span>📜 积分流水记录</span>
+      <span id="logToggleIcon">▼</span>
+    </button>
+    <div class="card log-body" id="logBody" style="border-top-left-radius:0;border-top-right-radius:0;margin-top:0;border-top:none;">
+      <div id="logList"><div class="empty"><span class="ei">📭</span>暂无流水记录</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- 完成任务评级模态框 -->
+<div class="modal-overlay" id="completeModal">
+  <div class="modal">
+    <h3>🎉 完成任务啦！</h3>
+    <div class="task-preview" id="modalEmoji">📖</div>
+    <div class="task-name-preview" id="modalTaskName">任务名称</div>
+
+    <div class="stars-wrapper">
+      <p>请家长给孩子打个分吧 ⭐</p>
+      <div class="stars" id="starsEl">
+        <span class="star" data-val="1">⭐</span>
+        <span class="star" data-val="2">⭐</span>
+        <span class="star" data-val="3">⭐</span>
+        <span class="star" data-val="4">⭐</span>
+        <span class="star" data-val="5">⭐</span>
+      </div>
+      <div class="star-desc" id="starDesc">👆 请点击星星评分</div>
+    </div>
+
+    <div class="points-preview">
+      基础积分 <span id="modalBase">-</span> 分 →
+      <span class="big" id="modalFinal">-</span> 分
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn btn-danger" onclick="closeModal()">取消</button>
+      <button class="btn btn-purple" id="confirmBtn" onclick="confirmComplete()" disabled>✅ 确认提交</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast 容器 -->
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+/* ==================== 配置 ==================== */
+const API = '/api'; // 后端地址，如跨域改为 'http://localhost:8000/api'
+
+/* 星级说明和折算比例 */
+const STAR_INFO = {
+  1: { desc: '😅 1星 — 只做了一点点... 积分 × 50%', cls: 'danger', pct: 0.5 },
+  2: { desc: '😐 2星 — 马马虎虎，还能更好！积分 × 60%', cls: 'danger', pct: 0.6 },
+  3: { desc: '🙂 3星 — 做得不错，继续努力！积分 × 80%', cls: '', pct: 0.8 },
+  4: { desc: '😄 4星 — 非常棒！做得很认真！积分 × 100%', cls: '', pct: 1.0 },
+  5: { desc: '🤩 5星 — 太完美了！超级加倍！积分 × 120%', cls: '', pct: 1.2 },
+};
+
+/* ==================== 状态 ==================== */
+let currentTaskId = null;
+let currentBasePoints = 0;
+let selectedStar = 0;
+let totalPointsGlobal = 0;
+
+/* ==================== 工具函数 ==================== */
+function showToast(msg, type = 'success') {
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.textContent = msg;
+  document.getElementById('toastContainer').appendChild(el);
+  setTimeout(() => el.remove(), 3100);
+}
+
+function formatDate(isoStr) {
+  if (!isoStr) return '';
+  const d = new Date(isoStr);
+  return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+}
+
+async function fetchAPI(path, method = 'GET', body = null) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  const res = await fetch(API + path, opts);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.detail || '请求失败');
+  return data;
+}
+
+/* ==================== 渲染用户积分 ==================== */
+async function loadUser() {
+  const user = await fetchAPI('/user');
+  totalPointsGlobal = user.total_points;
+  const el = document.getElementById('totalPoints');
+  el.textContent = user.total_points;
+  el.classList.remove('pop');
+  void el.offsetWidth;
+  el.classList.add('pop');
+  updateProgress();
+}
+
+function updateProgress() {
+  // 找到最便宜的还买不起的奖励作为"下一个目标"
+  const rewardItems = document.querySelectorAll('[data-cost]');
+  let nextGoal = null;
+  rewardItems.forEach(el => {
+    const cost = parseInt(el.dataset.cost);
+    if (cost > totalPointsGlobal && (nextGoal === null || cost < nextGoal)) {
+      nextGoal = cost;
+    }
+  });
+  const pctEl = document.getElementById('progressFill');
+  const labelEl = document.getElementById('nextGoalPts');
+  if (nextGoal) {
+    const pct = Math.min(100, Math.round(totalPointsGlobal / nextGoal * 100));
+    pctEl.style.width = pct + '%';
+    labelEl.textContent = `${totalPointsGlobal}/${nextGoal}分`;
+  } else {
+    pctEl.style.width = '100%';
+    labelEl.textContent = '目标全达成 🎉';
+  }
+}
+
+/* ==================== 任务相关 ==================== */
+async function loadTasks() {
+  const tasks = await fetchAPI('/tasks');
+  const list = document.getElementById('taskList');
+  if (!tasks.length) {
+    list.innerHTML = '<div class="empty"><span class="ei">🎯</span>还没有任务，快添加吧！</div>';
+    return;
+  }
+  list.innerHTML = tasks.map(t => `
+    <div class="task-item ${t.status === 'done' ? 'done' : ''}" id="task-${t.id}">
+      <div class="emoji">${t.emoji}</div>
+      <div class="info">
+        <div class="name">${escHtml(t.name)}</div>
+        <div class="pts">基础积分：${t.base_points} 分</div>
+      </div>
+      <div class="task-actions">
+        ${t.status === 'pending'
+          ? `<button class="btn btn-primary btn-sm" onclick="openCompleteModal(${t.id}, '${escJs(t.name)}', '${t.emoji}', ${t.base_points})">✅ 完成</button>`
+          : `<span style="font-size:1.2rem;color:#22c55e;font-weight:900;">✓ 已完成</span>`
+        }
+        <button class="btn btn-danger btn-sm" onclick="deleteTask(${t.id})">🗑️</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function addTask() {
+  const name = document.getElementById('taskName').value.trim();
+  const pts = parseInt(document.getElementById('taskPoints').value);
+  const emoji = document.getElementById('taskEmoji').value;
+  if (!name) return showToast('请输入任务名称 📝', 'error');
+  if (!pts || pts < 1) return showToast('积分必须大于0 🔢', 'error');
+  try {
+    await fetchAPI('/tasks', 'POST', { name, emoji, base_points: pts });
+    document.getElementById('taskName').value = '';
+    document.getElementById('taskPoints').value = '';
+    await loadTasks();
+    showToast('任务添加成功 🎯', 'success');
+  } catch(e) { showToast(e.message, 'error'); }
+}
+
+async function deleteTask(id) {
+  if (!confirm('确定要删除这个任务吗？')) return;
+  try {
+    await fetchAPI(`/tasks/${id}`, 'DELETE');
+    await loadTasks();
+    showToast('任务已删除', 'success');
+  } catch(e) { showToast(e.message, 'error'); }
+}
+
+/* ==================== 完成任务评级 ==================== */
+function openCompleteModal(taskId, taskName, emoji, basePoints) {
+  currentTaskId = taskId;
+  currentBasePoints = basePoints;
+  selectedStar = 0;
+  document.getElementById('modalEmoji').textContent = emoji;
+  document.getElementById('modalTaskName').textContent = taskName;
+  document.getElementById('modalBase').textContent = basePoints;
+  document.getElementById('modalFinal').textContent = '-';
+  document.getElementById('starDesc').textContent = '👆 请点击星星评分';
+  document.getElementById('starDesc').className = 'star-desc';
+  document.getElementById('confirmBtn').disabled = true;
+  // 重置星星样式
+  document.querySelectorAll('.star').forEach(s => s.classList.remove('active', 'hover'));
+  document.getElementById('completeModal').classList.add('open');
+}
+
+function closeModal() {
+  document.getElementById('completeModal').classList.remove('open');
+  currentTaskId = null;
+}
+
+// 星星交互：悬停 + 点击
+document.querySelectorAll('.star').forEach(star => {
+  const val = parseInt(star.dataset.val);
+
+  star.addEventListener('mouseenter', () => {
+    // 高亮悬停及之前的星星
+    document.querySelectorAll('.star').forEach(s => {
+      const sv = parseInt(s.dataset.val);
+      s.classList.toggle('hover', sv <= val);
+      s.classList.remove('active');
+    });
+    const info = STAR_INFO[val];
+    const desc = document.getElementById('starDesc');
+    desc.textContent = info.desc;
+    desc.className = 'star-desc ' + info.cls;
+    // 显示预览积分
+    const preview = Math.floor(currentBasePoints * info.pct);
+    document.getElementById('modalFinal').textContent = preview;
+  });
+
+  star.addEventListener('mouseleave', () => {
+    // 恢复已选中状态
+    document.querySelectorAll('.star').forEach(s => {
+      const sv = parseInt(s.dataset.val);
+      s.classList.remove('hover');
+      s.classList.toggle('active', sv <= selectedStar);
+    });
+    if (selectedStar) {
+      const info = STAR_INFO[selectedStar];
+      document.getElementById('starDesc').textContent = info.desc;
+      document.getElementById('starDesc').className = 'star-desc ' + info.cls;
+      document.getElementById('modalFinal').textContent = Math.floor(currentBasePoints * info.pct);
+    } else {
+      document.getElementById('starDesc').textContent = '👆 请点击星星评分';
+      document.getElementById('modalFinal').textContent = '-';
+    }
+  });
+
+  star.addEventListener('click', () => {
+    selectedStar = val;
+    document.querySelectorAll('.star').forEach(s => {
+      s.classList.toggle('active', parseInt(s.dataset.val) <= val);
+      s.classList.remove('hover');
+    });
+    const info = STAR_INFO[val];
+    document.getElementById('starDesc').textContent = info.desc;
+    document.getElementById('starDesc').className = 'star-desc ' + info.cls;
+    document.getElementById('modalFinal').textContent = Math.floor(currentBasePoints * info.pct);
+    document.getElementById('confirmBtn').disabled = false;
+  });
+});
+
+async function confirmComplete() {
+  if (!selectedStar || !currentTaskId) return;
+  const btn = document.getElementById('confirmBtn');
+  btn.disabled = true;
+  btn.textContent = '提交中...';
+  try {
+    const res = await fetchAPI('/tasks/complete', 'POST', {
+      task_id: currentTaskId,
+      star_rating: selectedStar
+    });
+    closeModal();
+    showToast(res.message, 'success');
+    await Promise.all([loadTasks(), loadUser(), loadLogs()]);
+  } catch(e) {
+    showToast(e.message, 'error');
+    btn.disabled = false;
+    btn.textContent = '✅ 确认提交';
+  }
+}
+
+/* ==================== 奖励商城 ==================== */
+async function loadRewards() {
+  const rewards = await fetchAPI('/rewards');
+  const grid = document.getElementById('rewardGrid');
+  if (!rewards.length) {
+    grid.innerHTML = '<div class="empty" style="grid-column:1/-1"><span class="ei">🎁</span>还没有奖励，快来设定吧！</div>';
+    return;
+  }
+  grid.innerHTML = rewards.map(r => {
+    const canAfford = totalPointsGlobal >= r.cost_points;
+    return `
+      <div class="reward-item" data-cost="${r.cost_points}">
+        <div class="r-emoji">${r.emoji}</div>
+        <div class="r-name">${escHtml(r.name)}</div>
+        <div class="r-cost">🪙 ${r.cost_points} 分</div>
+        <button class="btn btn-sm ${canAfford ? 'btn-orange' : 'btn-danger'}"
+                onclick="redeemReward(${r.id}, '${escJs(r.name)}', ${r.cost_points})"
+                ${canAfford ? '' : 'style="opacity:0.6"'}>
+          ${canAfford ? '🎁 兑换' : '😢 不够'}
+        </button>
+        <button class="btn btn-sm btn-danger" style="margin-top:6px;width:100%" onclick="deleteReward(${r.id})">🗑️ 删除</button>
+      </div>
+    `;
+  }).join('');
+  updateProgress();
+}
+
+async function addReward() {
+  const name = document.getElementById('rewardName').value.trim();
+  const cost = parseInt(document.getElementById('rewardCost').value);
+  const emoji = document.getElementById('rewardEmoji').value;
+  if (!name) return showToast('请输入奖励名称 🎁', 'error');
+  if (!cost || cost < 1) return showToast('所需积分必须大于0 🔢', 'error');
+  try {
+    await fetchAPI('/rewards', 'POST', { name, emoji, cost_points: cost });
+    document.getElementById('rewardName').value = '';
+    document.getElementById('rewardCost').value = '';
+    await loadRewards();
+    showToast('奖励添加成功 🎉', 'success');
+  } catch(e) { showToast(e.message, 'error'); }
+}
+
+async function redeemReward(id, name, cost) {
+  // 前端预校验（后端也会校验，双重保险）
+  if (totalPointsGlobal < cost) {
+    return showToast(`积分不够啦，继续加油！💪 还差 ${cost - totalPointsGlobal} 分`, 'error');
+  }
+  if (!confirm(`确定用 ${cost} 积分兑换「${name}」吗？`)) return;
+  try {
+    const res = await fetchAPI('/rewards/redeem', 'POST', { reward_id: id });
+    showToast(res.message, 'success');
+    await Promise.all([loadUser(), loadRewards(), loadLogs()]);
+  } catch(e) { showToast(e.message, 'error'); }
+}
+
+async function deleteReward(id) {
+  if (!confirm('确定要删除这个奖励吗？')) return;
+  try {
+    await fetchAPI(`/rewards/${id}`, 'DELETE');
+    await loadRewards();
+    showToast('奖励已删除', 'success');
+  } catch(e) { showToast(e.message, 'error'); }
+}
+
+/* ==================== 流水记录 ==================== */
+let logOpen = false;
+function toggleLog() {
+  logOpen = !logOpen;
+  document.getElementById('logBody').classList.toggle('open', logOpen);
+  document.getElementById('logToggleIcon').textContent = logOpen ? '▲' : '▼';
+  if (logOpen) loadLogs();
+}
+
+async function loadLogs() {
+  const logs = await fetchAPI('/logs');
+  const el = document.getElementById('logList');
+  if (!logs.length) {
+    el.innerHTML = '<div class="empty"><span class="ei">📭</span>暂无流水记录</div>';
+    return;
+  }
+  el.innerHTML = logs.map(l => `
+    <div class="log-item ${l.action}">
+      <span>${l.action === 'earn' ? '✅' : '🎁'}</span>
+      <span>${escHtml(l.description)}</span>
+      <span class="log-amount" style="color:${l.action==='earn'?'#16a34a':'#ea580c'}">
+        ${l.action === 'earn' ? '+' : '-'}${l.amount}
+      </span>
+      <span class="log-time">${formatDate(l.created_at)}</span>
+    </div>
+  `).join('');
+}
+
+/* ==================== 辅助：防XSS ==================== */
+function escHtml(str) {
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function escJs(str) {
+  return String(str).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'\\"');
+}
+
+/* ==================== 初始化 ==================== */
+async function init() {
+  try {
+    await loadUser();
+    await loadTasks();
+    await loadRewards();
+  } catch(e) {
+    showToast('⚠️ 无法连接到后端，请确认 Python 服务已启动', 'error');
+    console.error(e);
+  }
+}
+
+init();
+</script>
+</body>
+</html>
