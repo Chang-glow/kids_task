@@ -24,12 +24,16 @@
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
+html, body {
+  overflow-x: hidden;
+  max-width: 100%;
+}
+
 body {
   font-family: 'Nunito', 'ZCOOL KuaiLe', sans-serif;
   min-height: 100vh;
   background: linear-gradient(180deg, #87CEEB 0%, #B8E4FF 35%, #D4F0C0 70%, #A8D8A8 100%);
   position: relative;
-  overflow-x: hidden;
 }
 
 /* 背景装饰云朵 */
@@ -85,7 +89,7 @@ body {
   position: relative; z-index: 1;
   max-width: 1100px;
   margin: 0 auto;
-  padding: 20px 16px 60px;
+  padding: 20px 16px 80px;
 }
 
 /* 顶部英雄区 */
@@ -95,7 +99,7 @@ body {
   margin-bottom: 24px;
 }
 .hero h1 {
-  font-size: clamp(2rem, 5vw, 3.5rem);
+  font-size: clamp(1.8rem, 5vw, 3.5rem);
   font-family: 'ZCOOL KuaiLe', sans-serif;
   color: #2D5016;
   text-shadow: 3px 3px 0 rgba(255,255,255,0.7), 0 0 30px rgba(107,203,119,0.4);
@@ -205,13 +209,14 @@ input:focus, select:focus {
   align-items: center;
   gap: 6px;
   white-space: nowrap;
+  min-height: 44px;
 }
 .btn:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,0.15); }
 .btn:active { transform: translateY(0); }
 .btn-primary { background: linear-gradient(135deg, #6BCB77, #34D399); color: white; box-shadow: 0 4px 12px rgba(107,203,119,0.4); }
 .btn-orange { background: linear-gradient(135deg, #FF6B35, #FF8FAB); color: white; box-shadow: 0 4px 12px rgba(255,107,53,0.35); }
 .btn-purple { background: linear-gradient(135deg, #C084FC, #818CF8); color: white; box-shadow: 0 4px 12px rgba(192,132,252,0.35); }
-.btn-sm { padding: 7px 14px; font-size: 0.85rem; border-radius: 10px; }
+.btn-sm { padding: 9px 14px; font-size: 0.85rem; border-radius: 10px; min-height: 38px; }
 .btn-danger { background: #fee2e2; color: #ef4444; }
 .btn-danger:hover { background: #fecaca; box-shadow: 0 4px 12px rgba(239,68,68,0.2); }
 
@@ -235,10 +240,23 @@ input:focus, select:focus {
 .task-item .name { font-weight: 800; color: #1a202c; font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .task-item .pts { font-size: 0.8rem; color: #718096; font-weight: 700; }
 .task-item.done .name { text-decoration: line-through; }
-.task-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.task-actions { display: flex; gap: 6px; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; }
 @keyframes slideIn {
   from { opacity: 0; transform: translateY(-10px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+/* 可重复任务 badge */
+.badge-repeat {
+  display: inline-block;
+  margin-left: 6px;
+  background: #dcfce7;
+  color: #166534;
+  padding: 2px 8px;
+  border-radius: 100px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  vertical-align: middle;
 }
 
 /* 奖励网格 */
@@ -295,7 +313,7 @@ input:focus, select:focus {
 .log-item.earn { background: #f0fdf4; color: #166534; border-left: 4px solid #22c55e; }
 .log-item.spend { background: #fff7ed; color: #9a3412; border-left: 4px solid #f97316; }
 .log-item .log-amount { margin-left: auto; font-size: 1rem; font-weight: 900; white-space: nowrap; }
-.log-item .log-time { color: #9ca3af; font-size: 0.75rem; }
+.log-item .log-time { color: #9ca3af; font-size: 0.75rem; white-space: nowrap; }
 
 /* ===== 模态框（评级弹窗）===== */
 .modal-overlay {
@@ -370,7 +388,7 @@ input:focus, select:focus {
 
 /* 提示 Toast */
 .toast-container {
-  position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
+  position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%);
   z-index: 2000;
   display: flex; flex-direction: column-reverse; align-items: center; gap: 10px;
   pointer-events: none;
@@ -384,6 +402,7 @@ input:focus, select:focus {
   box-shadow: 0 8px 30px rgba(0,0,0,0.2);
   animation: toastIn 0.4s cubic-bezier(0.34,1.56,0.64,1), toastOut 0.3s ease 2.7s forwards;
   pointer-events: none;
+  white-space: nowrap;
 }
 .toast.success { background: linear-gradient(135deg, #6BCB77, #34D399); color: white; }
 .toast.error { background: linear-gradient(135deg, #FF6B35, #FF8FAB); color: white; }
@@ -399,11 +418,71 @@ input:focus, select:focus {
 .empty { text-align: center; padding: 28px; color: #a0aec0; font-weight: 700; font-size: 0.95rem; }
 .empty .ei { font-size: 2.5rem; display: block; margin-bottom: 8px; }
 
-/* 进度条（积分相对满分） */
+/* 进度条 */
 .progress-wrap { margin-top: 14px; }
 .progress-label { font-size: 0.78rem; color: rgba(255,255,255,0.8); font-weight: 700; margin-bottom: 6px; display: flex; justify-content: space-between; }
 .progress-bar { height: 10px; background: rgba(255,255,255,0.25); border-radius: 100px; overflow: hidden; }
 .progress-fill { height: 100%; background: white; border-radius: 100px; transition: width 0.6s cubic-bezier(0.34,1.56,0.64,1); }
+
+/* ===== 悬浮刷新按钮 FAB ===== */
+#fabRefresh {
+  position: fixed;
+  bottom: 28px;
+  right: 24px;
+  z-index: 999;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: none;
+  background: linear-gradient(135deg, #6BCB77, #34D399);
+  font-size: 1.5rem;
+  cursor: pointer;
+  box-shadow: 0 6px 20px rgba(107,203,119,0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+#fabRefresh:hover {
+  transform: scale(1.12) rotate(20deg);
+  box-shadow: 0 10px 28px rgba(107,203,119,0.6);
+}
+#fabRefresh:active { transform: scale(0.95); }
+
+/* ===== 移动端响应式 ===== */
+@media (max-width: 600px) {
+  .container {
+    width: 95%;
+    padding: 12px 8px 80px;
+  }
+  .card {
+    padding: 16px 14px;
+    border-radius: 18px;
+  }
+  .points-card {
+    padding: 20px 18px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .points-icon { display: none; }
+  .btn {
+    padding: 13px 18px;
+    font-size: 1rem;
+    min-height: 48px;
+  }
+  .btn-sm {
+    padding: 10px 12px;
+    font-size: 0.85rem;
+    min-height: 40px;
+  }
+  .form-row { flex-direction: column; }
+  .reward-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
+  .modal { padding: 28px 20px; border-radius: 24px; }
+  .star { font-size: 2.2rem; }
+  .log-item { flex-wrap: wrap; gap: 6px; }
+  .hero h1 { letter-spacing: 2px; }
+}
 </style>
 </head>
 <body>
@@ -419,7 +498,7 @@ input:focus, select:focus {
 <div class="container">
   <!-- 英雄标题 -->
   <div class="hero">
-    <h1>🌟 超级任务基地 🌟</h1>
+    <h1>🌟超级任务基地🌟</h1>
     <p>完成任务赢积分，积分可以换奖励！加油吧！💪</p>
   </div>
 
@@ -441,52 +520,95 @@ input:focus, select:focus {
 
   <!-- 任务区 + 商城区 双列 -->
   <div class="grid-2">
-    <!-- 任务区 -->
-    <div class="card">
-      <div class="card-title">📋 我的任务</div>
+    <!-- 左列：任务区 + 惩罚区 -->
+    <div style="display:flex;flex-direction:column;gap:20px;">
 
-      <!-- 添加任务表单 -->
-      <div style="margin-bottom:18px; padding:16px; background:#f8fafc; border-radius:16px;">
-        <div class="form-row">
-          <div class="form-group" style="flex:2">
-            <label>任务名称</label>
-            <input type="text" id="taskName" placeholder="例如：完成作业" maxlength="20">
+      <!-- 任务区 -->
+      <div class="card">
+        <div class="card-title">📋 我的任务</div>
+
+        <!-- 添加任务表单 -->
+        <div style="margin-bottom:18px; padding:16px; background:#f8fafc; border-radius:16px;">
+          <div class="form-row">
+            <div class="form-group" style="flex:2">
+              <label>任务名称</label>
+              <input type="text" id="taskName" placeholder="例如：完成作业" maxlength="20">
+            </div>
+            <div class="form-group" style="flex:1">
+              <label>基础积分</label>
+              <input type="number" id="taskPoints" placeholder="20" min="1" max="999">
+            </div>
           </div>
-          <div class="form-group" style="flex:1">
-            <label>基础积分</label>
-            <input type="number" id="taskPoints" placeholder="20" min="1" max="999">
+          <div class="form-row">
+            <div class="form-group">
+              <label>选个 Emoji</label>
+              <select id="taskEmoji">
+                <option value="📖">📖 阅读</option>
+                <option value="✏️">✏️ 作业</option>
+                <option value="🧹">🧹 家务</option>
+                <option value="🏃">🏃 运动</option>
+                <option value="🌱">🌱 浇花</option>
+                <option value="🍳">🍳 帮厨</option>
+                <option value="😴">😴 早睡</option>
+                <option value="🐶">🐶 遛狗</option>
+                <option value="🎵">🎵 练琴</option>
+                <option value="🛁">🛁 洗澡</option>
+              </select>
+            </div>
+          </div>
+          <!-- 可重复复选框 -->
+          <div class="form-row" style="align-items:center;margin-bottom:10px;">
+            <label style="display:flex;align-items:center;gap:8px;font-weight:800;color:#4a5568;cursor:pointer;user-select:none;font-size:0.9rem;">
+              <input type="checkbox" id="taskRepeatable"
+                     style="width:18px;height:18px;accent-color:#6BCB77;cursor:pointer;flex-shrink:0;">
+              🔄 可重复完成（完成后不消失，每天可再做）
+            </label>
+          </div>
+          <div class="form-row" style="margin-bottom:0;">
+            <button class="btn btn-primary" style="width:100%;justify-content:center;" onclick="addTask()">➕ 添加任务</button>
           </div>
         </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label>选个 Emoji</label>
-            <select id="taskEmoji">
-              <option value="📖">📖 阅读</option>
-              <option value="✏️">✏️ 作业</option>
-              <option value="🧹">🧹 家务</option>
-              <option value="🏃">🏃 运动</option>
-              <option value="🎵">🎵 练琴</option>
-              <option value="🌱">🌱 浇花</option>
-              <option value="🍳">🍳 帮厨</option>
-              <option value="🛁">🛁 洗澡</option>
-              <option value="😴">😴 早睡</option>
-              <option value="🐶">🐶 遛狗</option>
-            </select>
+
+        <!-- 任务列表 -->
+        <div class="task-list" id="taskList">
+          <div class="empty"><span class="ei">🎯</span>还没有任务，快添加吧！</div>
+        </div>
+      </div>
+
+      <!-- 惩罚扣分区 -->
+      <div class="card">
+        <div class="card-title">🚫 违规扣分</div>
+        <div style="padding:16px; background:#fef2f2; border-radius:16px;">
+          <div class="form-row">
+            <div class="form-group" style="flex:2">
+              <label>违规原因</label>
+              <input type="text" id="punishName" placeholder="例如：打人、说谎" maxlength="20">
+            </div>
+            <div class="form-group" style="flex:1">
+              <label>扣除积分</label>
+              <input type="number" id="punishPoints" placeholder="10" min="1" max="999">
+            </div>
           </div>
-          <div class="form-group" style="justify-content:flex-end">
-            <label>&nbsp;</label>
-            <button class="btn btn-primary" onclick="addTask()">➕ 添加任务</button>
+          <div class="form-row" style="margin-bottom:0;">
+            <div class="form-group">
+              <label>选个 Emoji</label>
+              <select id="punishEmoji">
+                <option value="😡">😡 发脾气</option>
+                <option value="🚫">🚫 违规</option>
+                <option value="👂🏻">👂🏻 不听话</option>
+              </select>
+            </div>
+            <div class="form-group" style="justify-content:flex-end;">
+              <label>&nbsp;</label>
+              <button class="btn" style="background:linear-gradient(135deg,#ef4444,#f97316);color:white;box-shadow:0 4px 12px rgba(239,68,68,0.35);width:100%;justify-content:center;" onclick="addPunish()">⚡ 执行扣分</button>
+            </div>
           </div>
         </div>
       </div>
 
-      <!-- 任务列表 -->
-      <div class="task-list" id="taskList">
-        <div class="empty"><span class="ei">🎯</span>还没有任务，快添加吧！</div>
-      </div>
-    </div>
+    </div><!-- 左列结束 -->
 
-    <!-- 商城区 -->
+    <!-- 右列：商城区 -->
     <div class="card">
       <div class="card-title">🏪 奖励商城</div>
 
@@ -512,9 +634,9 @@ input:focus, select:focus {
               <option value="🎡">🎡 出去玩</option>
               <option value="📱">📱 手机时间</option>
               <option value="🎨">🎨 画画</option>
-              <option value="🍦">🍦 吃冰淇淋</option>
+              <option value="🍽️">🍽️ 美味大餐</option>
               <option value="🎠">🎠 游乐场</option>
-              <option value="📚">📚 买书</option>
+              <option value="📚">📚 看书买书</option>
               <option value="🧸">🧸 买玩具</option>
             </select>
           </div>
@@ -530,7 +652,8 @@ input:focus, select:focus {
         <div class="empty" style="grid-column:1/-1"><span class="ei">🎁</span>还没有奖励，快来设定吧！</div>
       </div>
     </div>
-  </div>
+
+  </div><!-- grid-2 结束 -->
 
   <!-- 流水账记录（可折叠） -->
   <div class="log-section">
@@ -543,6 +666,9 @@ input:focus, select:focus {
     </div>
   </div>
 </div>
+
+<!-- 悬浮刷新按钮 FAB -->
+<button id="fabRefresh" onclick="init()" title="刷新数据" aria-label="刷新数据">🔄</button>
 
 <!-- 完成任务评级模态框 -->
 <div class="modal-overlay" id="completeModal">
@@ -580,7 +706,7 @@ input:focus, select:focus {
 
 <script>
 /* ==================== 配置 ==================== */
-const API = '/api'; // 后端地址，如跨域改为 'http://localhost:8000/api'
+const API = '/api';
 
 /* 星级说明和折算比例 */
 const STAR_INFO = {
@@ -634,7 +760,6 @@ async function loadUser() {
 }
 
 function updateProgress() {
-  // 找到最便宜的还买不起的奖励作为"下一个目标"
   const rewardItems = document.querySelectorAll('[data-cost]');
   let nextGoal = null;
   rewardItems.forEach(el => {
@@ -668,12 +793,15 @@ async function loadTasks() {
       <div class="emoji">${t.emoji}</div>
       <div class="info">
         <div class="name">${escHtml(t.name)}</div>
-        <div class="pts">基础积分：${t.base_points} 分</div>
+        <div class="pts">
+          基础积分：${t.base_points} 分
+          ${t.is_repeatable ? '<span class="badge-repeat">🔄 可重复</span>' : ''}
+        </div>
       </div>
       <div class="task-actions">
         ${t.status === 'pending'
           ? `<button class="btn btn-primary btn-sm" onclick="openCompleteModal(${t.id}, '${escJs(t.name)}', '${t.emoji}', ${t.base_points})">✅ 完成</button>`
-          : `<span style="font-size:1.2rem;color:#22c55e;font-weight:900;">✓ 已完成</span>`
+          : `<span style="font-size:1.1rem;color:#22c55e;font-weight:900;">✓ 已完成</span>`
         }
         <button class="btn btn-danger btn-sm" onclick="deleteTask(${t.id})">🗑️</button>
       </div>
@@ -685,12 +813,14 @@ async function addTask() {
   const name = document.getElementById('taskName').value.trim();
   const pts = parseInt(document.getElementById('taskPoints').value);
   const emoji = document.getElementById('taskEmoji').value;
+  const isRepeatable = document.getElementById('taskRepeatable').checked;
   if (!name) return showToast('请输入任务名称 📝', 'error');
   if (!pts || pts < 1) return showToast('积分必须大于0 🔢', 'error');
   try {
-    await fetchAPI('/tasks', 'POST', { name, emoji, base_points: pts });
+    await fetchAPI('/tasks', 'POST', { name, emoji, base_points: pts, is_repeatable: isRepeatable });
     document.getElementById('taskName').value = '';
     document.getElementById('taskPoints').value = '';
+    document.getElementById('taskRepeatable').checked = false;
     await loadTasks();
     showToast('任务添加成功 🎯', 'success');
   } catch(e) { showToast(e.message, 'error'); }
@@ -717,7 +847,6 @@ function openCompleteModal(taskId, taskName, emoji, basePoints) {
   document.getElementById('starDesc').textContent = '👆 请点击星星评分';
   document.getElementById('starDesc').className = 'star-desc';
   document.getElementById('confirmBtn').disabled = true;
-  // 重置星星样式
   document.querySelectorAll('.star').forEach(s => s.classList.remove('active', 'hover'));
   document.getElementById('completeModal').classList.add('open');
 }
@@ -732,27 +861,21 @@ document.querySelectorAll('.star').forEach(star => {
   const val = parseInt(star.dataset.val);
 
   star.addEventListener('mouseenter', () => {
-    // 高亮悬停及之前的星星
     document.querySelectorAll('.star').forEach(s => {
-      const sv = parseInt(s.dataset.val);
-      s.classList.toggle('hover', sv <= val);
+      s.classList.toggle('hover', parseInt(s.dataset.val) <= val);
       s.classList.remove('active');
     });
     const info = STAR_INFO[val];
     const desc = document.getElementById('starDesc');
     desc.textContent = info.desc;
     desc.className = 'star-desc ' + info.cls;
-    // 显示预览积分
-    const preview = Math.floor(currentBasePoints * info.pct);
-    document.getElementById('modalFinal').textContent = preview;
+    document.getElementById('modalFinal').textContent = Math.floor(currentBasePoints * info.pct);
   });
 
   star.addEventListener('mouseleave', () => {
-    // 恢复已选中状态
     document.querySelectorAll('.star').forEach(s => {
-      const sv = parseInt(s.dataset.val);
       s.classList.remove('hover');
-      s.classList.toggle('active', sv <= selectedStar);
+      s.classList.toggle('active', parseInt(s.dataset.val) <= selectedStar);
     });
     if (selectedStar) {
       const info = STAR_INFO[selectedStar];
@@ -819,7 +942,7 @@ async function loadRewards() {
                 ${canAfford ? '' : 'style="opacity:0.6"'}>
           ${canAfford ? '🎁 兑换' : '😢 不够'}
         </button>
-        <button class="btn btn-sm btn-danger" style="margin-top:6px;width:100%" onclick="deleteReward(${r.id})">🗑️ 删除</button>
+        <button class="btn btn-sm btn-danger" style="margin-top:6px;width:100%;" onclick="deleteReward(${r.id})">🗑️ 删除</button>
       </div>
     `;
   }).join('');
@@ -842,7 +965,6 @@ async function addReward() {
 }
 
 async function redeemReward(id, name, cost) {
-  // 前端预校验（后端也会校验，双重保险）
   if (totalPointsGlobal < cost) {
     return showToast(`积分不够啦，继续加油！💪 还差 ${cost - totalPointsGlobal} 分`, 'error');
   }
@@ -863,6 +985,22 @@ async function deleteReward(id) {
   } catch(e) { showToast(e.message, 'error'); }
 }
 
+/* ==================== 惩罚扣分 ==================== */
+async function addPunish() {
+  const name = document.getElementById('punishName').value.trim();
+  const pts = parseInt(document.getElementById('punishPoints').value);
+  const emoji = document.getElementById('punishEmoji').value;
+  if (!name) return showToast('请输入违规原因 📝', 'error');
+  if (!pts || pts < 1) return showToast('扣分值必须大于0 🔢', 'error');
+  try {
+    const res = await fetchAPI('/punish', 'POST', { name, emoji, penalty_points: pts });
+    document.getElementById('punishName').value = '';
+    document.getElementById('punishPoints').value = '';
+    showToast(res.message, 'error');
+    await Promise.all([loadUser(), loadLogs()]);
+  } catch(e) { showToast(e.message, 'error'); }
+}
+
 /* ==================== 流水记录 ==================== */
 let logOpen = false;
 function toggleLog() {
@@ -879,16 +1017,23 @@ async function loadLogs() {
     el.innerHTML = '<div class="empty"><span class="ei">📭</span>暂无流水记录</div>';
     return;
   }
-  el.innerHTML = logs.map(l => `
-    <div class="log-item ${l.action}">
-      <span>${l.action === 'earn' ? '✅' : '🎁'}</span>
-      <span>${escHtml(l.description)}</span>
-      <span class="log-amount" style="color:${l.action==='earn'?'#16a34a':'#ea580c'}">
-        ${l.action === 'earn' ? '+' : '-'}${l.amount}
-      </span>
-      <span class="log-time">${formatDate(l.created_at)}</span>
-    </div>
-  `).join('');
+  el.innerHTML = logs.map(l => {
+    const isEarn = l.action === 'earn';
+    // punish 复用 spend 样式，但图标改为 🚫
+    const icon = l.action === 'punish' ? '🚫' : isEarn ? '✅' : '🎁';
+    const colorClass = isEarn ? 'earn' : 'spend';
+    const sign = isEarn ? '+' : '-';
+    return `
+      <div class="log-item ${colorClass}">
+        <span>${icon}</span>
+        <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(l.description)}</span>
+        <span class="log-amount" style="color:${isEarn ? '#16a34a' : '#ea580c'}">
+          ${sign}${l.amount}
+        </span>
+        <span class="log-time">${formatDate(l.created_at)}</span>
+      </div>
+    `;
+  }).join('');
 }
 
 /* ==================== 辅助：防XSS ==================== */
