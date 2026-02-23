@@ -128,24 +128,35 @@ init_db()
 
 # ==================== 数据模型（Pydantic） ====================
 
+
 class CompleteTaskRequest(BaseModel):
     task_id: int
     star_rating: int  # 1-5星
+
 
 class AddTaskRequest(BaseModel):
     name: str
     emoji: str
     base_points: int
 
+
 class AddRewardRequest(BaseModel):
     name: str
     emoji: str
     cost_points: int
 
+
 class RedeemRewardRequest(BaseModel):
     reward_id: int
 
+
+class PunishRequest(BaseModel):
+    name: str        # 惩罚原因名称
+    emoji: str       # 代表 Emoji
+    penalty_points: int  # 扣除积分数
+
 # ==================== 积分计算工具函数 ====================
+
 
 STAR_MULTIPLIERS = {
     1: 0.5,   # 1星 50%
@@ -166,6 +177,7 @@ def calculate_final_points(base_points: int, star_rating: int) -> int:
     return math.floor(base_points * multiplier)
 
 # ==================== API 路由 ====================
+
 
 @app.get("/api/user")
 def get_user():
@@ -401,6 +413,59 @@ def delete_reward(reward_id: int):
     conn.commit()
     conn.close()
     return {"success": True}
+
+
+@app.post("/api/punish")
+def punish_user(req: PunishRequest):
+    """
+    惩罚扣分
+    使用 max(0, current - penalty) 确保积分不会扣成负数
+    """
+    if req.penalty_points <= 0:
+        raise HTTPException(status_code=400, detail="扣分值必须大于0")
+    if len(req.name.strip()) == 0:
+        raise HTTPException(status_code=400, detail="惩罚原因不能为空")
+
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        # 查询当前积分
+        cur.execute("SELECT total_points FROM users WHERE id = 1")
+        user = cur.fetchone()
+        current_points = user["total_points"]
+
+        # 计算扣后积分，最低为 0，绝不扣成负数
+        new_points = max(0, current_points - req.penalty_points)
+        actual_deducted = current_points - new_points  # 实际扣除量（可能小于请求值）
+
+        now = datetime.now()
+
+        # 更新积分
+        cur.execute("UPDATE users SET total_points = %s WHERE id = 1", (new_points,))
+
+        # 记录惩罚流水
+        description = f"{req.emoji} 惩罚「{req.name.strip()}」→ -{actual_deducted}分"
+        cur.execute(
+            "INSERT INTO point_logs (action, amount, description, created_at) VALUES (%s, %s, %s, %s)",
+            ("punish", actual_deducted, description, now)
+        )
+
+        conn.commit()
+
+        return {
+            "success": True,
+            "deducted_points": actual_deducted,
+            "total_points": new_points,
+            "message": f"已扣除 {actual_deducted} 积分，请下次注意！{req.emoji}"
+        }
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
 
 
 @app.get("/api/logs")
