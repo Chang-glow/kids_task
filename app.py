@@ -452,6 +452,54 @@ def get_logs():
     return [dict(l) for l in logs]
 
 
+# 获取周期状态
+@app.get("/api/stats")
+def get_stats():
+    """
+    积分统计报告
+    按日/周/月三个维度聚合 point_logs，返回盈、亏、净值
+    """
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        result = {}
+        for period in ['day', 'week', 'month']:
+            cur.execute("""
+                SELECT
+                    date_trunc(%s, created_at)          AS period_start,
+                    SUM(CASE WHEN action = 'earn'
+                             THEN amount ELSE 0 END)    AS earned,
+                    SUM(CASE WHEN action IN ('spend', 'punish')
+                             THEN amount ELSE 0 END)    AS spent,
+                    SUM(CASE WHEN action = 'earn'
+                             THEN amount ELSE -amount END) AS net
+                FROM point_logs
+                GROUP BY date_trunc(%s, created_at)
+                ORDER BY period_start DESC
+                LIMIT 30
+            """, (period, period))
+            rows = cur.fetchall()
+            # 将 datetime 转为字符串，方便 JSON 序列化
+            result[period] = [
+                {
+                    "period_start": row["period_start"].strftime(
+                        "%Y-%m-%d" if period == "day" else
+                        "%Y 第%W周" if period == "week" else
+                        "%Y-%m"
+                    ),
+                    "earned": int(row["earned"] or 0),
+                    "spent":  int(row["spent"]  or 0),
+                    "net":    int(row["net"]    or 0),
+                }
+                for row in rows
+            ]
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
 # 提供前端静态文件
 if os.path.exists("index.html"):
     @app.get("/")

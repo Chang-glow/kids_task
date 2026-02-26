@@ -483,6 +483,66 @@ input:focus, select:focus {
   .log-item { flex-wrap: wrap; gap: 6px; }
   .hero h1 { letter-spacing: 2px; }
 }
+
+  /* ===== 统计中心 ===== */
+.stats-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.stats-tab {
+  padding: 8px 20px;
+  border: 2px solid #e2e8f0;
+  border-radius: 100px;
+  background: white;
+  font-family: inherit;
+  font-size: 0.9rem;
+  font-weight: 800;
+  color: #718096;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.stats-tab.active {
+  background: linear-gradient(135deg, #6BCB77, #34D399);
+  border-color: transparent;
+  color: white;
+  box-shadow: 0 4px 12px rgba(107,203,119,0.4);
+}
+.stats-table-wrap {
+  overflow-x: auto;          /* 手机端横向滚动 */
+  -webkit-overflow-scrolling: touch;
+  border-radius: 14px;
+  border: 2px solid #e2e8f0;
+}
+.stats-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+  min-width: 320px;          /* 防止手机端列被压碎 */
+}
+.stats-table th {
+  background: #f8fafc;
+  padding: 10px 14px;
+  text-align: left;
+  font-weight: 900;
+  color: #4a5568;
+  border-bottom: 2px solid #e2e8f0;
+  white-space: nowrap;
+}
+.stats-table td {
+  padding: 10px 14px;
+  border-bottom: 1px solid #f1f5f9;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.stats-table tr:last-child td { border-bottom: none; }
+.stats-table tr:hover td { background: #f8fafc; }
+.stats-earn { color: #16a34a; font-weight: 900; }
+.stats-spent { color: #ea580c; font-weight: 900; }
+.stats-net-pos { color: #16a34a; font-weight: 900; }
+.stats-net-neg { color: #ef4444; font-weight: 900; }
+.stats-empty { text-align: center; padding: 24px; color: #a0aec0; font-weight: 700; }
+
 </style>
 </head>
 <body>
@@ -664,6 +724,35 @@ input:focus, select:focus {
     <div class="card log-body" id="logBody" style="border-top-left-radius:0;border-top-right-radius:0;margin-top:0;border-top:none;">
       <div id="logList"><div class="empty"><span class="ei">📭</span>暂无流水记录</div></div>
     </div>
+  </div>
+</div>
+
+<!-- 统计中心 -->
+<div class="card" style="margin-bottom:20px;">
+  <div class="card-title">📊 统计中心</div>
+
+  <!-- Tab 切换 -->
+  <div class="stats-tabs">
+    <button class="stats-tab active" onclick="switchStatsTab('day',   this)">📅 日</button>
+    <button class="stats-tab"        onclick="switchStatsTab('week',  this)">📆 周</button>
+    <button class="stats-tab"        onclick="switchStatsTab('month', this)">🗓️ 月</button>
+  </div>
+
+  <!-- 表格容器 -->
+  <div class="stats-table-wrap">
+    <table class="stats-table">
+      <thead>
+        <tr>
+          <th>时间区间</th>
+          <th>积分盈 ▲</th>
+          <th>积分亏 ▼</th>
+          <th>净值</th>
+        </tr>
+      </thead>
+      <tbody id="statsTableBody">
+        <tr><td colspan="4" class="stats-empty">加载中...</td></tr>
+      </tbody>
+    </table>
   </div>
 </div>
 
@@ -1044,16 +1133,117 @@ function escJs(str) {
   return String(str).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'\\"');
 }
 
+/* ==================== 统计中心 ==================== */
+let statsCache = null;        // 缓存后端数据，切 Tab 时无需重复请求
+let currentStatsPeriod = 'day';
+
+async function loadStats() {
+  try {
+    statsCache = await fetchAPI('/stats');
+    renderStatsTable(currentStatsPeriod);
+  } catch(e) {
+    document.getElementById('statsTableBody').innerHTML =
+      `<tr><td colspan="4" class="stats-empty">⚠️ 加载失败：${escHtml(e.message)}</td></tr>`;
+  }
+}
+
+function switchStatsTab(period, btnEl) {
+  currentStatsPeriod = period;
+  // 切换 Tab 高亮
+  document.querySelectorAll('.stats-tab').forEach(b => b.classList.remove('active'));
+  btnEl.classList.add('active');
+  // 若已有缓存直接渲染，否则请求
+  if (statsCache) {
+    renderStatsTable(period);
+  } else {
+    loadStats();
+  }
+}
+
+function renderStatsTable(period) {
+  const tbody = document.getElementById('statsTableBody');
+  const rows = statsCache?.[period] ?? [];
+
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="4" class="stats-empty">📭 暂无数据</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = rows.map(r => {
+    const netClass = r.net >= 0 ? 'stats-net-pos' : 'stats-net-neg';
+    const netSign  = r.net >= 0 ? '+' : '';
+    return `
+      <tr>
+        <td>${escHtml(r.period_start)}</td>
+        <td class="stats-earn">+${r.earned}</td>
+        <td class="stats-spent">-${r.spent}</td>
+        <td class="${netClass}">${netSign}${r.net}</td>
+      </tr>
+    `;
+  }).join('');
+}
+
 /* ==================== 初始化 ==================== */
 async function init() {
   try {
     await loadUser();
     await loadTasks();
     await loadRewards();
+    await loadStats();
   } catch(e) {
     showToast('⚠️ 无法连接到后端，请确认 Python 服务已启动', 'error');
     console.error(e);
   }
+}
+
+/* ==================== 统计中心 ==================== */
+let statsCache = null;        // 缓存后端数据，切 Tab 时无需重复请求
+let currentStatsPeriod = 'day';
+
+async function loadStats() {
+  try {
+    statsCache = await fetchAPI('/stats');
+    renderStatsTable(currentStatsPeriod);
+  } catch(e) {
+    document.getElementById('statsTableBody').innerHTML =
+      `<tr><td colspan="4" class="stats-empty">⚠️ 加载失败：${escHtml(e.message)}</td></tr>`;
+  }
+}
+
+function switchStatsTab(period, btnEl) {
+  currentStatsPeriod = period;
+  // 切换 Tab 高亮
+  document.querySelectorAll('.stats-tab').forEach(b => b.classList.remove('active'));
+  btnEl.classList.add('active');
+  // 若已有缓存直接渲染，否则请求
+  if (statsCache) {
+    renderStatsTable(period);
+  } else {
+    loadStats();
+  }
+}
+
+function renderStatsTable(period) {
+  const tbody = document.getElementById('statsTableBody');
+  const rows = statsCache?.[period] ?? [];
+
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="4" class="stats-empty">📭 暂无数据</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = rows.map(r => {
+    const netClass = r.net >= 0 ? 'stats-net-pos' : 'stats-net-neg';
+    const netSign  = r.net >= 0 ? '+' : '';
+    return `
+      <tr>
+        <td>${escHtml(r.period_start)}</td>
+        <td class="stats-earn">+${r.earned}</td>
+        <td class="stats-spent">-${r.spent}</td>
+        <td class="${netClass}">${netSign}${r.net}</td>
+      </tr>
+    `;
+  }).join('');
 }
 
 init();
