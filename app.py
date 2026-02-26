@@ -11,7 +11,14 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 import math
 import os
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+
+# 北京时间 UTC+8
+CST = timezone(timedelta(hours=8))
+
+def now_cst():
+    """返回当前北京时间（UTC+8），替代所有 datetime.now()"""
+    return datetime.now(CST).replace(tzinfo=None)  # 存入数据库不带时区信息，保持一致
 
 app = FastAPI(title="儿童积分系统")
 
@@ -98,7 +105,7 @@ def init_db():
     # 插入默认示例任务（若任务表为空）
     cur.execute("SELECT COUNT(*) FROM tasks")
     if cur.fetchone()['count'] == 0:
-        now = datetime.now()
+        now = now_cst()
         tasks_data = [
             ("今日阅读30分钟", "📖", 20, "pending", False, now),
             ("整理房间", "🧹", 15, "pending", True, now),
@@ -112,7 +119,7 @@ def init_db():
     # 插入默认示例奖励（若奖励表为空）
     cur.execute("SELECT COUNT(*) FROM rewards")
     if cur.fetchone()['count'] == 0:
-        now = datetime.now()
+        now = now_cst()
         rewards_data = [
             ("看30分钟电视", "📺", 30, now),
             ("玩游戏1小时", "🎮", 50, now),
@@ -216,7 +223,7 @@ def add_task(req: AddTaskRequest):
         raise HTTPException(status_code=400, detail="任务名称不能为空")
     conn = get_db()
     cur = conn.cursor()
-    now = datetime.now()
+    now = now_cst()
     cur.execute(
         "INSERT INTO tasks (name, emoji, base_points, status, is_repeatable, created_at) VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
         (req.name.strip(), req.emoji, req.base_points, "pending", req.is_repeatable, now)
@@ -250,7 +257,7 @@ def complete_task(req: CompleteTaskRequest):
 
         final_points = calculate_final_points(task["base_points"], req.star_rating)
         multiplier_pct = int(STAR_MULTIPLIERS[req.star_rating] * 100)
-        now = datetime.now()
+        now = now_cst()
 
         # 可重复任务保持 pending，非重复任务标为 done
         if task["is_repeatable"]:
@@ -319,7 +326,7 @@ def add_reward(req: AddRewardRequest):
         raise HTTPException(status_code=400, detail="奖励名称不能为空")
     conn = get_db()
     cur = conn.cursor()
-    now = datetime.now()
+    now = now_cst()
     cur.execute(
         "INSERT INTO rewards (name, emoji, cost_points, created_at) VALUES (%s, %s, %s, %s) RETURNING id",
         (req.name.strip(), req.emoji, req.cost_points, now)
@@ -354,7 +361,7 @@ def redeem_reward(req: RedeemRewardRequest):
                 detail=f"积分不够啦，继续加油！💪 当前积分：{current_points}，需要：{cost}，还差：{cost - current_points}"
             )
 
-        now = datetime.now()
+        now = now_cst()
         cur.execute("UPDATE users SET total_points = total_points - %s WHERE id = 1", (cost,))
 
         cur.execute("SELECT total_points FROM users WHERE id = 1")
@@ -416,7 +423,7 @@ def punish_user(req: PunishRequest):
         new_points = max(0, current_points - req.penalty_points)
         actual_deducted = current_points - new_points
 
-        now = datetime.now()
+        now = now_cst()
         cur.execute("UPDATE users SET total_points = %s WHERE id = 1", (new_points,))
 
         description = f"{req.emoji} 惩罚「{req.name.strip()}」→ -{actual_deducted}分"
@@ -443,13 +450,49 @@ def punish_user(req: PunishRequest):
 
 
 @app.get("/api/logs")
-def get_logs():
+def get_logs(offset: int = 0, limit: int = 10):
+    """分页获取流水记录，offset=跳过条数，limit=获取条数"""
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT * FROM point_logs ORDER BY created_at DESC LIMIT 100")
+    # 获取总条数，用于前端判断是否还有更多
+    cur.execute("SELECT COUNT(*) FROM point_logs")
+    total = cur.fetchone()['count']
+    cur.execute(
+        "SELECT * FROM point_logs ORDER BY created_at DESC LIMIT %s OFFSET %s",
+        (limit, offset)
+    )
     logs = cur.fetchall()
     conn.close()
-    return [dict(l) for l in logs]
+    return {"total": total, "logs": [dict(l) for l in logs]}
+
+
+@app.post("/api/admin/fix-time")
+def fix_time():
+    """
+    时区修正工具：将数据库中已有的时间记录统一 +8 小时
+    仅需执行一次，修正历史数据的 UTC 偏差
+    """
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        cur.execute("UPDATE point_logs SET created_at = created_at + INTERVAL '8 hours'")
+        logs_updated = cur.rowcount
+        cur.execute("UPDATE tasks SET created_at = created_at + INTERVAL '8 hours'")
+        tasks_updated = cur.rowcount
+        cur.execute("""
+            UPDATE tasks SET completed_at = completed_at + INTERVAL '8 hours'
+            WHERE completed_at IS NOT NULL
+        """)
+        conn.commit()
+        return {
+            "success": True,
+            "message": f"时区修正完成！流水记录更新 {logs_updated} 条，任务更新 {tasks_updated} 条"
+        }
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
 
 
 # 获取周期状态

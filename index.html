@@ -315,6 +315,32 @@ input:focus, select:focus {
 .log-item .log-amount { margin-left: auto; font-size: 1rem; font-weight: 900; white-space: nowrap; }
 .log-item .log-time { color: #9ca3af; font-size: 0.75rem; white-space: nowrap; }
 
+/* 流水描述展开/折叠 */
+.log-desc {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: white-space 0.1s;
+}
+.log-desc.expanded {
+  white-space: normal;
+  word-break: break-all;
+}
+.log-expand-btn {
+  flex-shrink: 0;
+  border: none;
+  background: rgba(0,0,0,0.06);
+  border-radius: 6px;
+  padding: 1px 6px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  color: #718096;
+  font-weight: 900;
+  line-height: 1.4;
+}
+
 /* ===== 模态框（评级弹窗）===== */
 .modal-overlay {
   position: fixed; inset: 0;
@@ -578,6 +604,31 @@ input:focus, select:focus {
     <div class="points-icon">🏆</div>
   </div>
 
+  <!-- 统计中心（移至积分卡下方）-->
+  <div class="card" style="margin-bottom:20px;">
+    <div class="card-title">📊 统计中心</div>
+    <div class="stats-tabs">
+      <button class="stats-tab active" onclick="switchStatsTab('day',   this)">📅 日</button>
+      <button class="stats-tab"        onclick="switchStatsTab('week',  this)">📆 周</button>
+      <button class="stats-tab"        onclick="switchStatsTab('month', this)">🗓️ 月</button>
+    </div>
+    <div class="stats-table-wrap">
+      <table class="stats-table">
+        <thead>
+          <tr>
+            <th>时间区间</th>
+            <th>积分盈 ▲</th>
+            <th>积分亏 ▼</th>
+            <th>净值</th>
+          </tr>
+        </thead>
+        <tbody id="statsTableBody">
+          <tr><td colspan="4" class="stats-empty">加载中...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
   <!-- 任务区 + 商城区 双列 -->
   <div class="grid-2">
     <!-- 左列：任务区 + 惩罚区 -->
@@ -723,37 +774,21 @@ input:focus, select:focus {
     </button>
     <div class="card log-body" id="logBody" style="border-top-left-radius:0;border-top-right-radius:0;margin-top:0;border-top:none;">
       <div id="logList"><div class="empty"><span class="ei">📭</span>暂无流水记录</div></div>
+      <!-- 加载更多按钮 -->
+      <div id="logMoreWrap" style="display:none;text-align:center;margin-top:12px;">
+        <button class="btn btn-sm" style="background:#f1f5f9;color:#4a5568;" onclick="loadMoreLogs()">👇 查看更多</button>
+      </div>
     </div>
   </div>
-</div>
 
-<!-- 统计中心 -->
-<div class="card" style="margin-bottom:20px;">
-  <div class="card-title">📊 统计中心</div>
-
-  <!-- Tab 切换 -->
-  <div class="stats-tabs">
-    <button class="stats-tab active" onclick="switchStatsTab('day',   this)">📅 日</button>
-    <button class="stats-tab"        onclick="switchStatsTab('week',  this)">📆 周</button>
-    <button class="stats-tab"        onclick="switchStatsTab('month', this)">🗓️ 月</button>
+  <!-- 时区校准（不起眼的小链接） -->
+  <div style="text-align:center;margin-top:8px;margin-bottom:4px;">
+    <a href="#" onclick="fixTimezone(event)"
+       style="font-size:0.72rem;color:#cbd5e0;text-decoration:none;">
+      🕐 时区校准（仅首次使用需点击一次）
+    </a>
   </div>
 
-  <!-- 表格容器 -->
-  <div class="stats-table-wrap">
-    <table class="stats-table">
-      <thead>
-        <tr>
-          <th>时间区间</th>
-          <th>积分盈 ▲</th>
-          <th>积分亏 ▼</th>
-          <th>净值</th>
-        </tr>
-      </thead>
-      <tbody id="statsTableBody">
-        <tr><td colspan="4" class="stats-empty">加载中...</td></tr>
-      </tbody>
-    </table>
-  </div>
 </div>
 
 <!-- 悬浮刷新按钮 FAB -->
@@ -1003,7 +1038,7 @@ async function confirmComplete() {
     });
     closeModal();
     showToast(res.message, 'success');
-    await Promise.all([loadTasks(), loadUser(), loadLogs()]);
+    await Promise.all([loadTasks(), loadUser(), loadLogs(true)]);
   } catch(e) {
     showToast(e.message, 'error');
     btn.disabled = false;
@@ -1061,7 +1096,7 @@ async function redeemReward(id, name, cost) {
   try {
     const res = await fetchAPI('/rewards/redeem', 'POST', { reward_id: id });
     showToast(res.message, 'success');
-    await Promise.all([loadUser(), loadRewards(), loadLogs()]);
+    await Promise.all([loadUser(), loadRewards(), loadLogs(true)]);
   } catch(e) { showToast(e.message, 'error'); }
 }
 
@@ -1086,43 +1121,95 @@ async function addPunish() {
     document.getElementById('punishName').value = '';
     document.getElementById('punishPoints').value = '';
     showToast(res.message, 'error');
-    await Promise.all([loadUser(), loadLogs()]);
+    await Promise.all([loadUser(), loadLogs(true)]);
   } catch(e) { showToast(e.message, 'error'); }
 }
 
-/* ==================== 流水记录 ==================== */
+/* ==================== 流水记录（分页 + 展开）==================== */
+let logOffset = 0;
+const LOG_LIMIT = 10;
+let logTotal = 0;
 let logOpen = false;
+
 function toggleLog() {
   logOpen = !logOpen;
   document.getElementById('logBody').classList.toggle('open', logOpen);
   document.getElementById('logToggleIcon').textContent = logOpen ? '▲' : '▼';
-  if (logOpen) loadLogs();
+  // 首次展开才加载，避免重复请求
+  if (logOpen && logOffset === 0) loadLogs(true);
 }
 
-async function loadLogs() {
-  const logs = await fetchAPI('/logs');
-  const el = document.getElementById('logList');
-  if (!logs.length) {
-    el.innerHTML = '<div class="empty"><span class="ei">📭</span>暂无流水记录</div>';
-    return;
+function renderLogItem(l) {
+  const isEarn = l.action === 'earn';
+  const icon = l.action === 'punish' ? '🚫' : isEarn ? '✅' : '🎁';
+  const colorClass = isEarn ? 'earn' : 'spend';
+  const sign = isEarn ? '+' : '-';
+  const uid = `log-desc-${l.id}`;
+  return `
+    <div class="log-item ${colorClass}">
+      <span>${icon}</span>
+      <span id="${uid}" class="log-desc">${escHtml(l.description)}</span>
+      <button class="log-expand-btn" onclick="toggleLogDesc('${uid}')" title="展开/折叠">…</button>
+      <span class="log-amount" style="color:${isEarn ? '#16a34a' : '#ea580c'}">${sign}${l.amount}</span>
+      <span class="log-time">${formatDate(l.created_at)}</span>
+    </div>
+  `;
+}
+
+async function loadLogs(reset = false) {
+  if (reset) {
+    logOffset = 0;
+    document.getElementById('logList').innerHTML = '';
   }
-  el.innerHTML = logs.map(l => {
-    const isEarn = l.action === 'earn';
-    // punish 复用 spend 样式，但图标改为 🚫
-    const icon = l.action === 'punish' ? '🚫' : isEarn ? '✅' : '🎁';
-    const colorClass = isEarn ? 'earn' : 'spend';
-    const sign = isEarn ? '+' : '-';
-    return `
-      <div class="log-item ${colorClass}">
-        <span>${icon}</span>
-        <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(l.description)}</span>
-        <span class="log-amount" style="color:${isEarn ? '#16a34a' : '#ea580c'}">
-          ${sign}${l.amount}
-        </span>
-        <span class="log-time">${formatDate(l.created_at)}</span>
-      </div>
-    `;
-  }).join('');
+  try {
+    const data = await fetchAPI(`/logs?offset=${logOffset}&limit=${LOG_LIMIT}`);
+    logTotal = data.total;
+    const el = document.getElementById('logList');
+
+    if (logOffset === 0 && data.logs.length === 0) {
+      el.innerHTML = '<div class="empty"><span class="ei">📭</span>暂无流水记录</div>';
+      document.getElementById('logMoreWrap').style.display = 'none';
+      return;
+    }
+
+    // 追加新条目（流式加载）
+    data.logs.forEach(l => {
+      el.insertAdjacentHTML('beforeend', renderLogItem(l));
+    });
+
+    logOffset += data.logs.length;
+
+    // 判断是否还有更多
+    const moreWrap = document.getElementById('logMoreWrap');
+    moreWrap.style.display = logOffset < logTotal ? 'block' : 'none';
+  } catch(e) {
+    showToast('流水记录加载失败', 'error');
+  }
+}
+
+async function loadMoreLogs() {
+  await loadLogs(false);
+}
+
+function toggleLogDesc(uid) {
+  const el = document.getElementById(uid);
+  if (!el) return;
+  el.classList.toggle('expanded');
+}
+
+async function fixTimezone(e) {
+  e.preventDefault();
+  if (!confirm('确认执行时区校准？\n此操作将把数据库所有时间 +8小时，仅需执行一次！')) return;
+  try {
+    const res = await fetchAPI('/admin/fix-time', 'POST');
+    showToast(res.message, 'success');
+    // 刷新统计和流水
+    statsCache = null;
+    await loadStats();
+    if (logOpen) await loadLogs(true);
+  } catch(e) {
+    showToast('时区校准失败：' + e.message, 'error');
+  }
 }
 
 /* ==================== 辅助：防XSS ==================== */
