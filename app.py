@@ -208,8 +208,12 @@ def init_db():
     conn.close()
 
 
-# 启动时初始化表结构
-init_db()
+# 启动时初始化表结构（部署失败不影响启动）
+try:
+    init_db()
+except Exception:
+    import traceback
+    traceback.print_exc()
 
 # ==================== 数据模型（Pydantic） ====================
 
