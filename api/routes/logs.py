@@ -1,6 +1,7 @@
 """积分流水 + 惩罚扣分 + 统计，按 group_id 隔离。"""
 
 import json
+from datetime import timedelta
 
 from fastapi import APIRouter, HTTPException, Depends
 from api.dependencies import get_group_id
@@ -9,6 +10,41 @@ from api.models.schemas import PunishRequest
 from api.config import now_cst
 
 router = APIRouter(prefix="/api", tags=["logs"])
+
+# 惩罚冷静期限制
+PUNISH_LIMITS = [
+    (timedelta(minutes=10), 10),
+    (timedelta(hours=1), 25),
+    (timedelta(days=1), 100),
+]
+
+
+def _check_punish_limits(cur, group_id: int, wanted: int):
+    """检查惩罚冷静期，返回 (可扣除分数, 限制描述)"""
+    now = now_cst()
+    max_allowed = wanted
+    for window, limit in PUNISH_LIMITS:
+        since = now - window
+        cur.execute(
+            "SELECT COALESCE(SUM(amount), 0) FROM point_logs"
+            " WHERE group_id = %s AND action = 'punish' AND created_at >= %s",
+            (group_id, since),
+        )
+        recent = int(cur.fetchone()["coalesce"])
+        remaining = limit - recent
+        if remaining <= 0:
+            return 0, "教育需要循序渐进，请冷静考虑 😊"
+        if remaining < max_allowed:
+            max_allowed = remaining
+    return max_allowed, ""
+
+
+def _window_name(window: timedelta) -> str:
+    if window == timedelta(minutes=10):
+        return "10 分钟"
+    if window == timedelta(hours=1):
+        return "1 小时"
+    return "24 小时"
 
 
 @router.get("/logs")
@@ -29,7 +65,7 @@ def get_logs(group_id: int = Depends(get_group_id), offset: int = 0, limit: int 
 
 @router.post("/punish")
 def punish_user(req: PunishRequest, group_id: int = Depends(get_group_id)):
-    """惩罚扣分（不扣成负数）"""
+    """惩罚扣分（冷静期限制 + 不扣成负数）"""
     if req.penalty_points <= 0:
         raise HTTPException(status_code=400, detail="扣分值必须大于0")
     if len(req.name.strip()) == 0:
@@ -41,14 +77,27 @@ def punish_user(req: PunishRequest, group_id: int = Depends(get_group_id)):
         child = cur.fetchone()
         if not child:
             raise HTTPException(status_code=400, detail="群组中没有孩子")
+
+        # 冷静期检查
+        allowed, limit_msg = _check_punish_limits(cur, group_id, req.penalty_points)
+        if allowed <= 0:
+            raise HTTPException(status_code=400, detail=limit_msg)
+
+        effective_penalty = min(req.penalty_points, allowed)
         current_points = child["total_points"]
-        new_points = max(0, current_points - req.penalty_points)
+        new_points = max(0, current_points - effective_penalty)
         actual_deducted = current_points - new_points
+
+        if actual_deducted <= 0:
+            raise HTTPException(status_code=400, detail="当前无法扣除积分")
 
         now = now_cst()
         cur.execute("UPDATE children SET total_points = %s WHERE id = %s", (new_points, child["id"]))
 
-        description = f"{req.emoji} 惩罚「{req.name.strip()}」→ -{actual_deducted}分"
+        extra = ""
+        if effective_penalty < req.penalty_points:
+            extra = f"（受冷静期限制，实际扣除 {actual_deducted} 分）"
+        description = f"{req.emoji} 惩罚「{req.name.strip()}」→ -{actual_deducted}分{extra}"
         cur.execute(
             "INSERT INTO point_logs (action, amount, description, created_at, group_id, child_id)"
             " VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
@@ -68,11 +117,15 @@ def punish_user(req: PunishRequest, group_id: int = Depends(get_group_id)):
 
         conn.commit()
 
+        msg = f"已扣除 {actual_deducted} 分"
+        if extra:
+            msg += f"（{limit_msg or '受冷静期限制'}）"
+        msg += f"！{req.emoji}"
         return {
             "success": True,
             "deducted_points": actual_deducted,
             "total_points": new_points,
-            "message": f"已扣除 {actual_deducted} 积分，请下次注意！{req.emoji}",
+            "message": msg,
         }
     except HTTPException:
         conn.rollback()
@@ -82,6 +135,31 @@ def punish_user(req: PunishRequest, group_id: int = Depends(get_group_id)):
         raise HTTPException(status_code=500, detail="服务器内部错误")
     finally:
         conn.close()
+
+
+@router.get("/punish-limits")
+def get_punish_limits(group_id: int = Depends(get_group_id)):
+    """查看当前惩罚冷静期剩余额度"""
+    conn = get_db()
+    cur = conn.cursor()
+    now = now_cst()
+    limits = []
+    for window, limit in PUNISH_LIMITS:
+        since = now - window
+        cur.execute(
+            "SELECT COALESCE(SUM(amount), 0) FROM point_logs"
+            " WHERE group_id = %s AND action = 'punish' AND created_at >= %s",
+            (group_id, since),
+        )
+        used = int(cur.fetchone()["coalesce"])
+        limits.append({
+            "window": _window_name(window),
+            "limit": limit,
+            "used": used,
+            "remaining": max(0, limit - used),
+        })
+    conn.close()
+    return {"limits": limits}
 
 
 @router.get("/stats")

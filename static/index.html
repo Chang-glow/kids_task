@@ -680,6 +680,8 @@ input:focus, select:focus {
         <code x-text="inviteCode"></code>
         <button class="btn btn-sm" style="background:#f1f5f9;color:#4a5568;"
                 @click="copyInviteLink()">📋 复制邀请链接</button>
+        <button class="btn btn-sm" style="background:#fee2e2;color:#991b1b;"
+                @click="leaveGroup()">🚪 退出群组</button>
       </div>
 
       <!-- 英雄标题 -->
@@ -845,6 +847,12 @@ input:focus, select:focus {
                   <label>&nbsp;</label>
                   <button class="btn" style="background:linear-gradient(135deg,#ef4444,#f97316);color:white;box-shadow:0 4px 12px rgba(239,68,68,0.35);width:100%;justify-content:center;" @click="addPunish()">⚡ 执行扣分</button>
                 </div>
+              </div>
+              <div style="display:flex;gap:8px;margin-top:10px;font-size:0.72rem;color:#94a3b8;">
+                <template x-for="l in punishLimits" :key="l.window">
+                  <span x-text="l.window + ': ' + l.remaining + '/' + l.limit"
+                        :style="l.remaining === 0 ? 'color:#ef4444;font-weight:700' : ''"></span>
+                </template>
               </div>
             </div>
           </div>
@@ -1036,6 +1044,7 @@ function app() {
 
     // -- punish --
     punishForm: { name: '', points: '', emoji: '😡' },
+    punishLimits: [],
 
     // -- logs --
     logs: [],
@@ -1141,6 +1150,14 @@ function app() {
         () => this.toast('邀请链接已复制！📋'),
         () => this.toast('复制失败，请手动复制地址栏', 'error'),
       );
+    },
+
+    leaveGroup() {
+      this.inviteCode = null;
+      this.groupName = '';
+      this.groupId = null;
+      window.history.replaceState(null, '', '/');
+      localStorage.removeItem('inviteCode');
     },
 
     // === tasks ===
@@ -1288,8 +1305,16 @@ function app() {
         this.punishForm.name = '';
         this.punishForm.points = '';
         this.toast(res.message, 'error');
+        this.loadPunishLimits();
         await Promise.all([this.loadGroupInfo(), this.loadLogs(true)]);
       } catch (e) { this.toast(e.message, 'error'); }
+    },
+
+    async loadPunishLimits() {
+      try {
+        const data = await this.api('/punish-limits');
+        this.punishLimits = data.limits;
+      } catch (e) { /* ignore */ }
     },
 
     // === logs ===
@@ -1351,6 +1376,7 @@ function app() {
           this.loadRewards(),
           this.loadStats(),
         ]);
+        this.loadPunishLimits();
         this.pointsPop = true;
         setTimeout(() => this.pointsPop = false, 400);
       } catch (e) {
