@@ -30,4 +30,13 @@ app.include_router(logs_router)
 app.include_router(children_router)
 app.include_router(admin_router)
 
-init_db()
+@app.get("/api/health")
+def health():
+    return {"status": "ok"}
+
+
+try:
+    init_db()
+except Exception:
+    import traceback
+    traceback.print_exc()
