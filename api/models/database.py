@@ -13,6 +13,10 @@ def get_db():
     自动为远程库开启 SSL，为 PgBouncer 模式禁用 prepared statements。
     """
     dsn = DATABASE_URL
+    # psycopg2 不认识 Supabase pooler URL 的 ?pgbouncer=true 参数，剥离
+    if 'pgbouncer=true' in dsn:
+        dsn = dsn.replace('?pgbouncer=true', '?').replace('&pgbouncer=true', '')
+        dsn = dsn.rstrip('?&')
     if 'localhost' not in dsn and '127.0.0.1' not in dsn and 'sslmode' not in dsn:
         sep = '?' if '?' not in dsn else '&'
         dsn = f'{dsn}{sep}sslmode=require'
