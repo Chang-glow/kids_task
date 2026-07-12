@@ -3,6 +3,8 @@
 通过 config.DATABASE_URL 获取连接，方便切换云数据库。
 """
 
+import socket
+
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from api.config import DATABASE_URL
@@ -20,9 +22,20 @@ def get_db():
     if 'localhost' not in dsn and '127.0.0.1' not in dsn and 'sslmode' not in dsn:
         sep = '?' if '?' not in dsn else '&'
         dsn = f'{dsn}{sep}sslmode=require'
-    # PgBouncer transaction 模式不支持 prepared statements
+    # Vercel 免费层不支持 IPv6，强制解析 IPv4 地址
+    kwargs = {}
+    if 'localhost' not in dsn and '127.0.0.1' not in dsn:
+        try:
+            at_pos = dsn.rfind('@')
+            if at_pos > 0:
+                host_part = dsn[at_pos + 1:]
+                host = host_part.split(':')[0].split('/')[0]
+                addrs = socket.getaddrinfo(host, None, socket.AF_INET)
+                kwargs['host'] = addrs[0][4][0]
+        except Exception:
+            pass
     return psycopg2.connect(
-        dsn, cursor_factory=RealDictCursor, connect_timeout=10,
+        dsn, cursor_factory=RealDictCursor, connect_timeout=10, **kwargs,
     )
 
 
