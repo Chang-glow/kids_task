@@ -3,8 +3,6 @@
 通过 config.DATABASE_URL 获取连接，方便切换云数据库。
 """
 
-import socket
-
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from api.config import DATABASE_URL
@@ -12,28 +10,21 @@ from api.config import DATABASE_URL
 
 def get_db():
     """获取 PostgreSQL 数据库连接（字典游标）。
-    自动为远程库开启 SSL，为 PgBouncer 模式禁用 prepared statements。
+    自动为远程库开启 SSL，剥离 Supabase pooler 特有参数。
+    Supabase 直连是 IPv6-only，Vercel 不支持 IPv6 → 请用 Transaction pooler (port 6543)。
     """
     dsn = DATABASE_URL
-    # psycopg2 不认识 Supabase pooler URL 的 ?pgbouncer=true 参数，剥离
+    # psycopg2 不认识 Supabase pooler URL 的 ?pgbouncer=true，剥离
     if 'pgbouncer=true' in dsn:
         dsn = dsn.replace('?pgbouncer=true', '?').replace('&pgbouncer=true', '')
         dsn = dsn.rstrip('?&')
     if 'localhost' not in dsn and '127.0.0.1' not in dsn and 'sslmode' not in dsn:
         sep = '?' if '?' not in dsn else '&'
         dsn = f'{dsn}{sep}sslmode=require'
-    # Vercel 免费层不支持 IPv6，强制解析 IPv4 地址
+    # Transaction pooler (port 6543) 不支持 prepared statements
     kwargs = {}
-    if 'localhost' not in dsn and '127.0.0.1' not in dsn:
-        try:
-            at_pos = dsn.rfind('@')
-            if at_pos > 0:
-                host_part = dsn[at_pos + 1:]
-                host = host_part.split(':')[0].split('/')[0]
-                addrs = socket.getaddrinfo(host, None, socket.AF_INET)
-                kwargs['host'] = addrs[0][4][0]
-        except Exception:
-            pass
+    if ':6543' in dsn:
+        kwargs['options'] = '-c plan_cache_mode=force_custom_plan'
     return psycopg2.connect(
         dsn, cursor_factory=RealDictCursor, connect_timeout=10, **kwargs,
     )
