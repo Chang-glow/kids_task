@@ -13,13 +13,6 @@ import math
 import os
 from datetime import datetime, timezone, timedelta
 
-from api.routes.group import router as group_router
-from api.routes.tasks import router as task_router
-from api.routes.rewards import router as reward_router
-from api.routes.logs import router as logs_router
-from api.routes.children import router as children_router
-from api.routes.admin import router as admin_router
-
 # 北京时间 UTC+8
 CST = timezone(timedelta(hours=8))
 
@@ -37,13 +30,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(group_router)
-app.include_router(task_router)
-app.include_router(reward_router)
-app.include_router(logs_router)
-app.include_router(children_router)
-app.include_router(admin_router)
-
 # 从环境变量获取 PostgreSQL 连接字符串
 DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://localhost/kids_rewards")
 
@@ -51,12 +37,8 @@ DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://localhost/kids_rewar
 
 
 def get_db():
-    """获取 PostgreSQL 数据库连接（字典游标）。自动为远程库开启 SSL（Supabase 要求）。"""
-    dsn = DATABASE_URL
-    if 'localhost' not in dsn and '127.0.0.1' not in dsn and 'sslmode' not in dsn:
-        sep = '?' if '?' not in dsn else '&'
-        dsn = f'{dsn}{sep}sslmode=require'
-    conn = psycopg2.connect(dsn, cursor_factory=RealDictCursor, connect_timeout=10)
+    """获取 PostgreSQL 数据库连接，返回字典类型游标"""
+    conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
     return conn
 
 
@@ -64,28 +46,6 @@ def init_db():
     """初始化数据库表结构（PostgreSQL 版本）"""
     conn = get_db()
     cur = conn.cursor()
-
-    # 家庭群组表
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS family_groups (
-            id SERIAL PRIMARY KEY,
-            name TEXT NOT NULL DEFAULT '我们的家',
-            invite_code TEXT UNIQUE NOT NULL,
-            created_at TIMESTAMP NOT NULL DEFAULT NOW()
-        )
-    """)
-
-    # 孩子档案表
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS children (
-            id SERIAL PRIMARY KEY,
-            group_id INTEGER REFERENCES family_groups(id),
-            name TEXT NOT NULL,
-            emoji TEXT DEFAULT '👶',
-            total_points INTEGER DEFAULT 0,
-            created_at TIMESTAMP NOT NULL DEFAULT NOW()
-        )
-    """)
 
     # 用户/积分表
     cur.execute("""
@@ -106,16 +66,12 @@ def init_db():
             status TEXT NOT NULL DEFAULT 'pending',
             is_repeatable BOOLEAN NOT NULL DEFAULT false,
             completed_at TIMESTAMP,
-            created_at TIMESTAMP NOT NULL,
-            group_id INTEGER REFERENCES family_groups(id),
-            child_id INTEGER REFERENCES children(id)
+            created_at TIMESTAMP NOT NULL
         )
     """)
     # 兼容已存在的旧表：尝试新增列，若已存在则忽略
     cur.execute("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS is_repeatable BOOLEAN NOT NULL DEFAULT false")
     cur.execute("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP")
-    cur.execute("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS group_id INTEGER REFERENCES family_groups(id)")
-    cur.execute("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS child_id INTEGER REFERENCES children(id)")
 
     # 奖励商城表
     cur.execute("""
@@ -124,11 +80,9 @@ def init_db():
             name TEXT NOT NULL,
             emoji TEXT NOT NULL,
             cost_points INTEGER NOT NULL,
-            created_at TIMESTAMP NOT NULL,
-            group_id INTEGER REFERENCES family_groups(id)
+            created_at TIMESTAMP NOT NULL
         )
     """)
-    cur.execute("ALTER TABLE rewards ADD COLUMN IF NOT EXISTS group_id INTEGER REFERENCES family_groups(id)")
 
     # 积分流水表
     cur.execute("""
@@ -137,34 +91,7 @@ def init_db():
             action TEXT NOT NULL,
             amount INTEGER NOT NULL,
             description TEXT NOT NULL,
-            created_at TIMESTAMP NOT NULL,
-            group_id INTEGER REFERENCES family_groups(id),
-            child_id INTEGER REFERENCES children(id)
-        )
-    """)
-    cur.execute("ALTER TABLE point_logs ADD COLUMN IF NOT EXISTS group_id INTEGER REFERENCES family_groups(id)")
-    cur.execute("ALTER TABLE point_logs ADD COLUMN IF NOT EXISTS child_id INTEGER REFERENCES children(id)")
-    cur.execute("ALTER TABLE point_logs ADD COLUMN IF NOT EXISTS undone BOOLEAN DEFAULT false")
-
-    # Admin 设置表（密码哈希等）
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS admin_settings (
-            key TEXT PRIMARY KEY,
-            value TEXT NOT NULL
-        )
-    """)
-
-    # 操作历史表（撤回支持）
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS undo_operations (
-            id SERIAL PRIMARY KEY,
-            group_id INTEGER REFERENCES family_groups(id),
-            child_id INTEGER REFERENCES children(id),
-            operation_type TEXT NOT NULL,
-            description TEXT NOT NULL,
-            undo_data JSONB NOT NULL,
-            created_at TIMESTAMP NOT NULL,
-            undone_at TIMESTAMP
+            created_at TIMESTAMP NOT NULL
         )
     """)
 
@@ -616,29 +543,11 @@ def get_stats():
         conn.close()
 
 
-# 提供前端静态文件（Alpine.js SPA）
-_frontend_path = "static/index.html"
-if not os.path.exists(_frontend_path):
-    _frontend_path = "index.html"  # fallback to old frontend
-
-if os.path.exists(_frontend_path):
-
+# 提供前端静态文件
+if os.path.exists("index.html"):
     @app.get("/")
     def serve_frontend():
-        return FileResponse(_frontend_path)
-
-    @app.get("/g/{invite_code}")
-    def serve_group_frontend(invite_code: str):
-        """SPA 入口 — /g/{invite_code} 也返回 index.html，客户端路由接管"""
-        return FileResponse(_frontend_path)
-
-
-_admin_path = "static/admin.html"
-if os.path.exists(_admin_path):
-
-    @app.get("/admin")
-    def serve_admin():
-        return FileResponse(_admin_path)
+        return FileResponse("index.html")
 
 
 if __name__ == "__main__":
