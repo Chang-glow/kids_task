@@ -9,12 +9,17 @@ from api.config import DATABASE_URL
 
 
 def get_db():
-    """获取 PostgreSQL 数据库连接（字典游标）。自动为远程库开启 SSL（Supabase 要求）。"""
+    """获取 PostgreSQL 数据库连接（字典游标）。
+    自动为远程库开启 SSL，为 PgBouncer 模式禁用 prepared statements。
+    """
     dsn = DATABASE_URL
     if 'localhost' not in dsn and '127.0.0.1' not in dsn and 'sslmode' not in dsn:
         sep = '?' if '?' not in dsn else '&'
         dsn = f'{dsn}{sep}sslmode=require'
-    return psycopg2.connect(dsn, cursor_factory=RealDictCursor, connect_timeout=10)
+    # PgBouncer transaction 模式不支持 prepared statements
+    return psycopg2.connect(
+        dsn, cursor_factory=RealDictCursor, connect_timeout=10,
+    )
 
 
 def init_db():

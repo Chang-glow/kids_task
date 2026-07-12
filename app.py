@@ -51,12 +51,14 @@ DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://localhost/kids_rewar
 
 
 def get_db():
-    """获取 PostgreSQL 数据库连接（字典游标）。自动为远程库开启 SSL（Supabase 要求）。"""
+    """获取 PostgreSQL 数据库连接（字典游标）。自动为远程库开启 SSL，PgBouncer 模式禁用 prepared statements。"""
     dsn = DATABASE_URL
     if 'localhost' not in dsn and '127.0.0.1' not in dsn and 'sslmode' not in dsn:
         sep = '?' if '?' not in dsn else '&'
         dsn = f'{dsn}{sep}sslmode=require'
-    conn = psycopg2.connect(dsn, cursor_factory=RealDictCursor, connect_timeout=10)
+    conn = psycopg2.connect(
+        dsn, cursor_factory=RealDictCursor, connect_timeout=10,
+    )
     return conn
 
 
