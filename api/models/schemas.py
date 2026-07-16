@@ -42,3 +42,12 @@ class CreateGroupRequest(BaseModel):
 class AddChildRequest(BaseModel):
     name: str
     emoji: str = "👶"
+
+
+class BorrowRequest(BaseModel):
+    amount: int
+    child_id: int | None = None
+
+
+class RepayRequest(BaseModel):
+    amount: int  # 还款金额，支持部分还款

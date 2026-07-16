@@ -29,10 +29,12 @@ def _cleanup_test_data():
         conn = psycopg2.connect("postgresql:///kids_rewards_test", cursor_factory=RealDictCursor)
         cur = conn.cursor()
         cur.execute("DELETE FROM admin_settings WHERE key = 'password_hash_test'")
+        cur.execute("DELETE FROM admin_settings WHERE key IN ('loan_interest_rate', 'loan_max_amount')")
         if _test_group_ids:
             ids = tuple(_test_group_ids)
             cur.execute("DELETE FROM undo_operations WHERE group_id IN %s", (ids,))
             cur.execute("DELETE FROM point_logs WHERE group_id IN %s", (ids,))
+            cur.execute("DELETE FROM loans WHERE group_id IN %s", (ids,))
             cur.execute("DELETE FROM tasks WHERE group_id IN %s", (ids,))
             cur.execute("DELETE FROM rewards WHERE group_id IN %s", (ids,))
             cur.execute("DELETE FROM children WHERE group_id IN %s", (ids,))

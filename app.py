@@ -19,6 +19,7 @@ from api.routes.rewards import router as reward_router
 from api.routes.logs import router as logs_router
 from api.routes.children import router as children_router
 from api.routes.admin import router as admin_router
+from api.routes.loans import router as loan_router
 
 # 北京时间 UTC+8
 CST = timezone(timedelta(hours=8))
@@ -43,6 +44,7 @@ app.include_router(reward_router)
 app.include_router(logs_router)
 app.include_router(children_router)
 app.include_router(admin_router)
+app.include_router(loan_router)
 
 # 从环境变量获取 PostgreSQL 连接字符串
 DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://localhost/kids_rewards")
@@ -97,6 +99,30 @@ def init_db():
             created_at TIMESTAMP NOT NULL DEFAULT NOW()
         )
     """)
+
+    # 信用分（迁移）
+    cur.execute("ALTER TABLE children ADD COLUMN IF NOT EXISTS credit_score INTEGER DEFAULT 100")
+    cur.execute("UPDATE children SET credit_score = 100 WHERE credit_score IS NULL")
+
+    # 贷款表
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS loans (
+            id SERIAL PRIMARY KEY,
+            group_id INTEGER REFERENCES family_groups(id),
+            child_id INTEGER REFERENCES children(id),
+            amount INTEGER NOT NULL,
+            remaining_principal INTEGER NOT NULL,
+            daily_rate NUMERIC(5,2) NOT NULL DEFAULT 5.0,
+            accrued_interest INTEGER NOT NULL DEFAULT 0,
+            last_interest_at TIMESTAMP NOT NULL,
+            borrowed_at TIMESTAMP NOT NULL,
+            repaid_at TIMESTAMP,
+            status TEXT NOT NULL DEFAULT 'active',
+            created_at TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+    """)
+    cur.execute("ALTER TABLE loans ADD COLUMN IF NOT EXISTS accrued_interest INTEGER NOT NULL DEFAULT 0")
+    cur.execute("ALTER TABLE loans ADD COLUMN IF NOT EXISTS last_interest_at TIMESTAMP")
 
     # 用户/积分表
     cur.execute("""

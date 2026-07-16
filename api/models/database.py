@@ -57,6 +57,30 @@ def init_db():
         )
     """)
 
+    # ---- 孩子信用分（迁移）----
+    cur.execute("ALTER TABLE children ADD COLUMN IF NOT EXISTS credit_score INTEGER DEFAULT 100")
+    cur.execute("UPDATE children SET credit_score = 100 WHERE credit_score IS NULL")
+
+    # ---- 贷款表 ----
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS loans (
+            id SERIAL PRIMARY KEY,
+            group_id INTEGER REFERENCES family_groups(id),
+            child_id INTEGER REFERENCES children(id),
+            amount INTEGER NOT NULL,
+            remaining_principal INTEGER NOT NULL,
+            daily_rate NUMERIC(5,2) NOT NULL DEFAULT 5.0,
+            accrued_interest INTEGER NOT NULL DEFAULT 0,
+            last_interest_at TIMESTAMP NOT NULL,
+            borrowed_at TIMESTAMP NOT NULL,
+            repaid_at TIMESTAMP,
+            status TEXT NOT NULL DEFAULT 'active',
+            created_at TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+    """)
+    cur.execute("ALTER TABLE loans ADD COLUMN IF NOT EXISTS accrued_interest INTEGER NOT NULL DEFAULT 0")
+    cur.execute("ALTER TABLE loans ADD COLUMN IF NOT EXISTS last_interest_at TIMESTAMP")
+
     # ---- 任务表 ----
     cur.execute("""
         CREATE TABLE IF NOT EXISTS tasks (

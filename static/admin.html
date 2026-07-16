@@ -139,6 +139,7 @@
       <button class="tab" :class="{ active: tab === 'points' }" @click="tab = 'points'">⭐ 积分修改</button>
       <button class="tab" :class="{ active: tab === 'logs' }" @click="tab = 'logs'">📝 日志管理</button>
       <button class="tab" :class="{ active: tab === 'history' }" @click="tab = 'history'; loadOperations()">🕐 操作历史</button>
+      <button class="tab" :class="{ active: tab === 'loan' }" @click="tab = 'loan'; loadLoanSettings()">💸 贷款设置</button>
     </div>
 
     <!-- ===== Tab: Overview ===== -->
@@ -324,6 +325,24 @@
 
     <!-- Toast -->
     <div class="toast" :class="'toast-' + toastType" x-show="toast" x-text="toast" @click="toast = ''"></div>
+
+    <!-- ===== Tab: Loan Settings ===== -->
+    <div x-show="tab === 'loan'">
+      <div class="card">
+        <h3>💸 贷款参数设置</h3>
+        <div class="form-row" style="margin-bottom:16px;">
+          <label style="min-width:100px;">日利率 (%)</label>
+          <input type="range" x-model.number="loanInterestRate" min="0" max="100" step="0.5" style="flex:1;">
+          <span style="font-weight:700;min-width:60px;text-align:right;" x-text="loanInterestRate + '%'"></span>
+        </div>
+        <div class="form-row" style="margin-bottom:16px;">
+          <label style="min-width:100px;">最高额度</label>
+          <input type="range" x-model.number="loanMaxAmount" min="10" max="1000" step="10" style="flex:1;">
+          <span style="font-weight:700;min-width:60px;text-align:right;" x-text="loanMaxAmount + ' 分'"></span>
+        </div>
+        <button class="btn btn-primary" @click="saveLoanSettings()">💾 保存设置</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -363,6 +382,10 @@ function adminApp() {
 
     // Overview tab
     selectedGroups: [],
+
+    // Loan settings
+    loanInterestRate: 5,
+    loanMaxAmount: 200,
 
     // Toast
     toast: '',
@@ -675,13 +698,39 @@ function adminApp() {
       await this.enterDashboard();
     },
 
+    // Loan settings
+    async loadLoanSettings() {
+      try {
+        const resp = await fetch('/api/admin/loan-settings', {
+          headers: { 'Authorization': 'Bearer ' + this.token },
+        });
+        const data = await resp.json();
+        this.loanInterestRate = data.interest_rate;
+        this.loanMaxAmount = data.max_amount;
+      } catch (e) { /* ignore */ }
+    },
+
+    async saveLoanSettings() {
+      const resp = await fetch('/api/admin/loan-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + this.token },
+        body: JSON.stringify({
+          interest_rate: this.loanInterestRate,
+          max_amount: this.loanMaxAmount,
+        }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) { this.showToast(data.detail || '保存失败', 'error'); return; }
+      this.showToast('贷款设置已保存', 'success');
+    },
+
     // Helpers
     tagClass(type) {
-      const m = { manual_edit: 'edit', manual_log_delete: 'delete', manual_log_add: 'add', task_complete: 'task', redeem_reward: 'reward', punish: 'punish' };
+      const m = { manual_edit: 'edit', manual_log_delete: 'delete', manual_log_add: 'add', task_complete: 'task', redeem_reward: 'reward', punish: 'punish', borrow_loan: 'add', repay_loan: 'spend' };
       return m[type] || 'edit';
     },
     opTypeLabel(type) {
-      const m = { manual_edit: '修改积分', manual_log_delete: '积分变更(删)', manual_log_add: '积分变更(增)', task_complete: '完成任务', redeem_reward: '兑换奖励', punish: '惩罚' };
+      const m = { manual_edit: '修改积分', manual_log_delete: '积分变更(删)', manual_log_add: '积分变更(增)', task_complete: '完成任务', redeem_reward: '兑换奖励', punish: '惩罚', borrow_loan: '贷款借款', repay_loan: '贷款还款' };
       return m[type] || type;
     },
     showToast(msg, type) {

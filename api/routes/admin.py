@@ -446,6 +446,32 @@ def admin_undo(operation_id: int, _token: str = Depends(_require_admin)):
             )
             cur.execute("UPDATE point_logs SET undone = true WHERE id = %s", (undo_data["log_id"],))
 
+        elif op_type == "borrow_loan":
+            cur.execute("DELETE FROM loans WHERE id = %s", (undo_data["loan_id"],))
+            cur.execute(
+                "UPDATE children SET total_points = GREATEST(0, total_points - %s) WHERE id = %s",
+                (undo_data["amount"], undo_data["child_id"]),
+            )
+            cur.execute("UPDATE point_logs SET undone = true WHERE id = %s", (undo_data["log_id"],))
+
+        elif op_type == "repay_loan":
+            cur.execute(
+                "UPDATE loans SET remaining_principal = %s, accrued_interest = %s,"
+                " status = 'active', repaid_at = NULL WHERE id = %s",
+                (undo_data["previous_remaining_principal"], undo_data["previous_accrued_interest"],
+                 undo_data["loan_id"]),
+            )
+            cur.execute(
+                "UPDATE children SET total_points = total_points + %s WHERE id = %s",
+                (undo_data["repay_amount"], undo_data["child_id"]),
+            )
+            if undo_data.get("credit_change"):
+                cur.execute(
+                    "UPDATE children SET credit_score = %s WHERE id = %s",
+                    (undo_data["previous_credit_score"], undo_data["child_id"]),
+                )
+            cur.execute("UPDATE point_logs SET undone = true WHERE id = %s", (undo_data["log_id"],))
+
         cur.execute("UPDATE undo_operations SET undone_at = %s WHERE id = %s", (now, operation_id))
         conn.commit()
         return {"success": True}
@@ -482,6 +508,74 @@ def admin_rewards(group_id: int, _token: str = Depends(_require_admin)):
     return rewards
 
 
+# ---- 贷款设置 ----
+
+@router.get("/loan-settings")
+def admin_get_loan_settings(_token: str = Depends(_require_admin)):
+    """获取贷款设置（日利率、最高额度）。"""
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT key, value FROM admin_settings WHERE key IN ('loan_interest_rate', 'loan_max_amount')"
+    )
+    rows = cur.fetchall()
+    conn.close()
+    settings = {r["key"]: r["value"] for r in rows}
+    return {
+        "interest_rate": float(settings.get("loan_interest_rate", "5")),
+        "max_amount": int(settings.get("loan_max_amount", "200")),
+    }
+
+
+@router.post("/loan-settings")
+def admin_save_loan_settings(req: dict, _token: str = Depends(_require_admin)):
+    """保存贷款设置。"""
+    interest_rate = req.get("interest_rate")
+    max_amount = req.get("max_amount")
+
+    if interest_rate is not None:
+        try:
+            rate = float(interest_rate)
+            if rate < 0 or rate > 100:
+                raise HTTPException(status_code=400, detail="利率必须在 0-100% 之间")
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="利率格式无效")
+
+    if max_amount is not None:
+        try:
+            amount = int(max_amount)
+            if amount < 1 or amount > 99999:
+                raise HTTPException(status_code=400, detail="最高额度范围 1-99999")
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="额度格式无效")
+
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        if interest_rate is not None:
+            cur.execute(
+                "INSERT INTO admin_settings (key, value) VALUES ('loan_interest_rate', %s)"
+                " ON CONFLICT (key) DO UPDATE SET value = %s",
+                (str(rate), str(rate)),
+            )
+        if max_amount is not None:
+            cur.execute(
+                "INSERT INTO admin_settings (key, value) VALUES ('loan_max_amount', %s)"
+                " ON CONFLICT (key) DO UPDATE SET value = %s",
+                (str(amount), str(amount)),
+            )
+        conn.commit()
+        return {"success": True}
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail="服务器内部错误")
+    finally:
+        conn.close()
+
+
 # ---- 删除群组 & 孩子 ----
 
 @router.delete("/groups/{group_id}")
@@ -497,6 +591,7 @@ def admin_delete_group(group_id: int, _token: str = Depends(_require_admin)):
 
         cur.execute("DELETE FROM undo_operations WHERE group_id = %s", (group_id,))
         cur.execute("DELETE FROM point_logs WHERE group_id = %s", (group_id,))
+        cur.execute("DELETE FROM loans WHERE group_id = %s", (group_id,))
         cur.execute("DELETE FROM tasks WHERE group_id = %s", (group_id,))
         cur.execute("DELETE FROM rewards WHERE group_id = %s", (group_id,))
         cur.execute("DELETE FROM children WHERE group_id = %s", (group_id,))
@@ -527,6 +622,7 @@ def admin_delete_child(child_id: int, _token: str = Depends(_require_admin)):
 
         cur.execute("DELETE FROM undo_operations WHERE child_id = %s", (child_id,))
         cur.execute("DELETE FROM point_logs WHERE child_id = %s", (child_id,))
+        cur.execute("DELETE FROM loans WHERE child_id = %s", (child_id,))
         cur.execute("UPDATE tasks SET child_id = NULL WHERE child_id = %s", (child_id,))
         cur.execute("DELETE FROM children WHERE id = %s", (child_id,))
         conn.commit()

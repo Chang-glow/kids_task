@@ -923,6 +923,80 @@ input:focus, select:focus {
 
       </div><!-- grid-2 结束 -->
 
+      <!-- 贷款中心 -->
+      <div class="card" style="margin-bottom:20px;" x-show="loanData">
+        <div class="card-title">💸 贷款中心</div>
+
+        <!-- 信用状态 -->
+        <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px;padding:12px;background:#f8fafc;border-radius:12px;">
+          <div style="min-width:80px;">
+            <div style="font-size:12px;color:#888;">信用分</div>
+            <div style="font-size:20px;font-weight:900;"
+                 x-text="loanData.credit_score"
+                 :style="'color:' + (loanData.credit_score >= 100 ? '#16a34a' : '#ea580c')"></div>
+          </div>
+          <div style="min-width:80px;">
+            <div style="font-size:12px;color:#888;">日利率</div>
+            <div style="font-size:20px;font-weight:900;" x-text="loanData.limits.interest_rate + '%'"></div>
+          </div>
+          <div style="min-width:80px;">
+            <div style="font-size:12px;color:#888;">最高可借</div>
+            <div style="font-size:20px;font-weight:900;" x-text="loanData.limits.max_amount + ' 分'"></div>
+          </div>
+          <div style="min-width:80px;">
+            <div style="font-size:12px;color:#888;">本周已借</div>
+            <div style="font-size:20px;font-weight:900;" x-text="loanData.weekly_loan_count + ' / ' + loanData.limits.loans_per_week + ' 次'"></div>
+          </div>
+        </div>
+
+        <!-- 非eligible提示 -->
+        <div x-show="!loanData.eligible" style="margin-bottom:12px;padding:8px 12px;background:#fef2f2;border-radius:8px;color:#dc2626;font-size:13px;" x-text="loanData.reason"></div>
+
+        <!-- 借款操作区 -->
+        <div x-show="loanData.eligible && !hasActiveLoan">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+            <template x-for="preset in [20, 50, 100]" :key="preset">
+              <button class="btn btn-sm"
+                      :class="preset <= loanData.limits.max_amount ? 'btn-orange' : ''"
+                      :disabled="preset > loanData.limits.max_amount"
+                      @click="loanAmount = preset; doBorrow()"
+                      x-text="'借 ' + preset + ' 分'"></button>
+            </template>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <input type="number" x-model="loanAmount" placeholder="自定义金额" min="1"
+                   :max="loanData.limits.max_amount"
+                   style="width:120px;padding:8px 12px;border:2px solid #e0e0e0;border-radius:8px;font-size:14px;">
+            <button class="btn btn-orange btn-sm" @click="doBorrow()">💸 借款</button>
+          </div>
+        </div>
+
+        <!-- 活跃贷款 -->
+        <div x-show="hasActiveLoan" style="margin-top:12px;">
+          <div style="font-weight:700;margin-bottom:8px;">📋 当前贷款</div>
+          <template x-for="loan in activeLoans" :key="loan.id">
+            <div style="padding:12px;background:#fff7ed;border-radius:10px;margin-bottom:8px;">
+              <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+                <div>
+                  <div style="font-weight:700;" x-text="'💸 借款 ' + loan.amount + ' 分'"></div>
+                  <div style="font-size:12px;color:#888;" x-text="'日利率 ' + parseFloat(loan.daily_rate) + '%'"></div>
+                  <div style="font-size:12px;color:#888;" x-text="'剩余本金 ' + loan.remaining_principal + ' 分'"></div>
+                  <div style="font-size:12px;color:#e67e22;" x-text="'累计利息 ' + loan.accrued_interest + ' 分'"></div>
+                  <div style="font-size:13px;font-weight:700;color:#dc2626;" x-text="'总欠款 ' + loan.total_owed + ' 分'"></div>
+                </div>
+                <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+                  <input type="number" x-model="repayAmounts[loan.id]" placeholder="还款金额" min="1"
+                         style="width:100px;padding:6px 10px;border:2px solid #e0e0e0;border-radius:8px;font-size:13px;">
+                  <button class="btn btn-sm btn-primary" @click="doRepay(loan.id)">💰 还款</button>
+                  <button class="btn btn-sm" style="background:#fef2f2;color:#dc2626;"
+                          @click="repayAmounts[loan.id] = loan.total_owed; doRepay(loan.id)">还清</button>
+                </div>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+
       <!-- 流水账记录（可折叠） -->
       <div class="log-section">
         <button class="log-toggle" @click="logOpen = !logOpen; if (logOpen && !logs.length && !logLoaded) loadLogs(true)">
@@ -1054,6 +1128,13 @@ function app() {
     logTotal: 0,
     logHasMore: false,
     expandedLogs: {},
+
+    // -- loan --
+    loanAmount: 0,
+    loanData: null,
+    activeLoans: [],
+    hasActiveLoan: false,
+    repayAmounts: {},
 
     // -- stats --
     statsCache: null,
@@ -1317,6 +1398,55 @@ function app() {
       } catch (e) { /* ignore */ }
     },
 
+    // === loan ===
+    async loadLoanStatus() {
+      if (!this.inviteCode) return;
+      try {
+        const data = await this.api('/loans/status');
+        const mine = data.find(d => d.child_id === this.childId);
+        this.loanData = mine || null;
+        await this.loadActiveLoans();
+      } catch (e) { /* ok */ }
+    },
+
+    async loadActiveLoans() {
+      try {
+        const allLoans = await this.api('/loans');
+        this.activeLoans = allLoans.filter(l => l.child_id === this.childId && l.status === 'active');
+        this.hasActiveLoan = this.activeLoans.length > 0;
+        for (const l of this.activeLoans) {
+          if (!(l.id in this.repayAmounts)) this.repayAmounts[l.id] = l.total_owed;
+        }
+      } catch (e) { /* ok */ }
+    },
+
+    async doBorrow() {
+      const amount = parseInt(this.loanAmount);
+      if (!amount || amount < 1) return this.toast('请输入有效借款金额', 'error');
+      if (this.loanData && amount > this.loanData.limits.max_amount) {
+        return this.toast(`借款金额超过上限（${this.loanData.limits.max_amount} 分）`, 'error');
+      }
+      try {
+        const res = await this.api('/loans', 'POST', { amount, child_id: this.childId });
+        this.toast(res.message);
+        this.loanAmount = 0;
+        await Promise.all([this.loadLoanStatus(), this.loadGroupInfo(), this.loadLogs(true)]);
+      } catch (e) { this.toast(e.message, 'error'); }
+    },
+
+    async doRepay(loanId) {
+      const amount = parseInt(this.repayAmounts[loanId]);
+      if (!amount || amount < 1) return this.toast('请输入有效还款金额', 'error');
+      const loan = this.activeLoans.find(l => l.id === loanId);
+      if (!loan) return;
+      try {
+        const res = await this.api(`/loans/${loanId}/repay`, 'POST', { amount });
+        this.toast(res.message);
+        delete this.repayAmounts[loanId];
+        await Promise.all([this.loadLoanStatus(), this.loadGroupInfo(), this.loadLogs(true)]);
+      } catch (e) { this.toast(e.message, 'error'); }
+    },
+
     // === logs ===
     async loadLogs(reset) {
       if (reset) {
@@ -1377,6 +1507,7 @@ function app() {
           this.loadStats(),
         ]);
         this.loadPunishLimits();
+        this.loadLoanStatus();
         this.pointsPop = true;
         setTimeout(() => this.pointsPop = false, 400);
       } catch (e) {
