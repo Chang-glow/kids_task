@@ -5,7 +5,7 @@ Vercel 将 /api/* 请求转发到此文件，冷启动时加载。
 
 import os
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.models.database import init_db, get_db, load_simulated_time
@@ -63,17 +63,9 @@ def _cron_refresh_loans(secret: str = Query(None)):
         conn.close()
 
 
-def _debug_path(request: Request):
-    return {
-        "url_path": str(request.url.path),
-        "root_path": request.scope.get("root_path", ""),
-        "path": request.scope.get("path", ""),
-    }
-
-
+app.router.add_api_route("/health", _health, methods=["GET"])
 app.router.add_api_route("/api/health", _health, methods=["GET"])
 app.router.add_api_route("/api/cron/refresh-loans", _cron_refresh_loans, methods=["GET"])
-app.router.add_api_route("/api/debug-path", _debug_path, methods=["GET"])
 
 
 try:

@@ -3,7 +3,7 @@
 技术栈：FastAPI + PostgreSQL (Render 持久化)
 """
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -48,17 +48,14 @@ app.include_router(admin_router)
 app.include_router(loan_router)
 
 
+@app.get("/health")
+def health_no_prefix():
+    return {"status": "ok", "route": "/health"}
+
+
 @app.get("/api/health")
-def health():
-    return {"status": "ok"}
-
-
-@app.get("/api/debug-path")
-def debug_path(request: Request):
-    return {
-        "url_path": str(request.url.path),
-        "root_path": request.scope.get("root_path", ""),
-    }
+def health_with_prefix():
+    return {"status": "ok", "route": "/api/health"}
 
 
 @app.get("/api/cron/refresh-loans")
