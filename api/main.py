@@ -3,7 +3,9 @@ Vercel ASGI 入口 — 组装 FastAPI 应用。
 Vercel 将 /api/* 请求转发到此文件，冷启动时加载。
 """
 
-from fastapi import FastAPI
+import os
+
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.models.database import init_db, get_db, load_simulated_time
@@ -39,8 +41,14 @@ def health():
 
 
 @app.get("/api/cron/refresh-loans")
-def cron_refresh_loans():
+def cron_refresh_loans(secret: str = Query(None)):
     """Vercel Cron 每小时触发：结算所有活跃贷款的利息和信用分衰减。"""
+    expected = os.environ.get("CRON_SECRET", "")
+    if not expected:
+        return {"success": False, "detail": "CRON_SECRET not configured"}
+    if secret != expected:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
     from api.config import now_cst
     from api.services.loan_service import refresh_loans
 
