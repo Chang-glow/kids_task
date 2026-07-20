@@ -80,6 +80,7 @@ def init_db():
     """)
     cur.execute("ALTER TABLE loans ADD COLUMN IF NOT EXISTS accrued_interest INTEGER NOT NULL DEFAULT 0")
     cur.execute("ALTER TABLE loans ADD COLUMN IF NOT EXISTS last_interest_at TIMESTAMP")
+    cur.execute("ALTER TABLE loans ADD COLUMN IF NOT EXISTS last_credit_decay_at TIMESTAMP")
 
     # ---- 任务表 ----
     cur.execute("""
@@ -173,3 +174,20 @@ def resolve_group_id(invite_code: str) -> int:
     group = cur.fetchone()
     conn.close()
     return group["id"] if group else None
+
+
+def load_simulated_time() -> None:
+    """启动时从 DB 恢复模拟时间设置。避免循环导入，放在 database 层。"""
+    try:
+        import api.config as config
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("SELECT value FROM admin_settings WHERE key = 'simulated_time'")
+        row = cur.fetchone()
+        conn.close()
+        if row and row["value"]:
+            from datetime import datetime
+            t = datetime.fromisoformat(row["value"])
+            config.set_simulated_time(t)
+    except Exception:
+        pass  # DB 未就绪时静默跳过

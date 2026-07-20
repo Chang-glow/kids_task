@@ -14,6 +14,7 @@ from api.services.loan_service import (
     calculate_repay_info,
     apply_repayment,
     check_loan_eligibility,
+    refresh_single_loan,
 )
 
 router = APIRouter(prefix="/api/loans", tags=["loans"])
@@ -21,28 +22,47 @@ router = APIRouter(prefix="/api/loans", tags=["loans"])
 
 @router.get("")
 def list_loans(group_id: int = Depends(get_group_id)):
-    """列出该群组所有贷款（含孩子信息、当前应还总额）。"""
+    """列出该群组所有贷款（含孩子信息、当前应还总额）。先结算利息再返回。"""
     conn = get_db()
     cur = conn.cursor()
-    cur.execute(
-        "SELECT l.*, c.name AS child_name, c.emoji AS child_emoji"
-        " FROM loans l JOIN children c ON l.child_id = c.id"
-        " WHERE l.group_id = %s"
-        " ORDER BY l.borrowed_at DESC",
-        (group_id,),
-    )
-    loans = cur.fetchall()
-    conn.close()
+    try:
+        now = now_cst()
 
-    now = now_cst()
-    result = []
-    for loan in loans:
-        info = calculate_repay_info(loan, now)
-        d = dict(loan)
-        d["total_owed"] = info["total_owed"]
-        d["accrued_interest"] = info["accrued_interest"]
-        result.append(d)
-    return result
+        # 先结算所有 active 贷款的利息和信用分衰减
+        cur.execute(
+            "SELECT l.*, c.credit_score"
+            " FROM loans l JOIN children c ON l.child_id = c.id"
+            " WHERE l.group_id = %s AND l.status = 'active'",
+            (group_id,),
+        )
+        active_loans = cur.fetchall()
+        for loan in active_loans:
+            refresh_single_loan(cur, loan, now)
+
+        # 再查询全部贷款（包括已还清的）
+        cur.execute(
+            "SELECT l.*, c.name AS child_name, c.emoji AS child_emoji"
+            " FROM loans l JOIN children c ON l.child_id = c.id"
+            " WHERE l.group_id = %s"
+            " ORDER BY l.borrowed_at DESC",
+            (group_id,),
+        )
+        loans = cur.fetchall()
+        conn.commit()
+
+        result = []
+        for loan in loans:
+            info = calculate_repay_info(loan, now)
+            d = dict(loan)
+            d["total_owed"] = info["total_owed"]
+            d["accrued_interest"] = info["accrued_interest"]
+            result.append(d)
+        return result
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 @router.get("/status")

@@ -2,11 +2,12 @@
 
 import json
 import traceback
+from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Header, Depends
 from api.admin_auth import hash_password, verify_password, generate_token, validate_token
 from api.models.database import get_db
-from api.config import now_cst
+from api.config import now_cst, set_simulated_time, get_simulated_time
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -628,6 +629,59 @@ def admin_delete_child(child_id: int, _token: str = Depends(_require_admin)):
         conn.commit()
         return {"success": True}
     except HTTPException:
+        raise
+    except Exception:
+        conn.rollback()
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail="服务器内部错误")
+    finally:
+        conn.close()
+
+
+@router.get("/simulated-time")
+def admin_get_simulated_time(_token: str = Depends(_require_admin)):
+    """获取当前模拟时间设置。"""
+    t = get_simulated_time()
+    return {
+        "simulated": t is not None,
+        "time": t.isoformat() if t else None,
+        "real_time": datetime.now().isoformat(),
+    }
+
+
+@router.post("/simulated-time")
+def admin_set_simulated_time(req: dict, _token: str = Depends(_require_admin)):
+    """
+    设置/清除模拟时间。
+    body: {"time": "2026-07-25 12:00:00"} 或 {"time": null} 清除。
+    """
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        time_str = req.get("time") if req else None
+
+        if time_str is None:
+            # 清除模拟时间
+            cur.execute("DELETE FROM admin_settings WHERE key = 'simulated_time'")
+            set_simulated_time(None)
+            conn.commit()
+            return {"success": True, "simulated": False, "message": "已恢复真实时间"}
+
+        t = datetime.fromisoformat(time_str)
+        set_simulated_time(t)
+
+        cur.execute(
+            "INSERT INTO admin_settings (key, value) VALUES ('simulated_time', %s)"
+            " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+            (time_str,),
+        )
+        conn.commit()
+        return {"success": True, "simulated": True, "time": t.isoformat(),
+                "message": f"模拟时间已设置为 {time_str}"}
+    except ValueError:
+        raise HTTPException(status_code=400, detail="时间格式错误，请使用 YYYY-MM-DD HH:MM:SS")
+    except HTTPException:
+        conn.rollback()
         raise
     except Exception:
         conn.rollback()

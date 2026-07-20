@@ -168,3 +168,85 @@ def check_loan_eligibility(
         "active_loans_count": active_count,
         "weekly_loan_count": weekly_count,
     }
+
+
+def refresh_single_loan(cur, loan: dict, now: datetime) -> dict:
+    """
+    结算单条贷款的利息和信用分衰减，写回 DB。
+    返回 {"interest": True/False, "credit_decay": True/False} 指示是否有更新。
+    """
+    result = {"interest": False, "credit_decay": False}
+
+    if loan["status"] != "active" or loan["remaining_principal"] <= 0:
+        return result
+
+    # ---- 利息结算 ----
+    last_interest_at = loan.get("last_interest_at") or loan["borrowed_at"]
+    days_since_interest = (now - last_interest_at).days
+
+    if days_since_interest > 0:
+        daily_rate = float(loan["daily_rate"])
+        new_interest = int(loan["remaining_principal"] * daily_rate / 100 * days_since_interest)
+        new_accrued = (loan.get("accrued_interest") or 0) + new_interest
+
+        cur.execute(
+            "UPDATE loans SET accrued_interest = %s, last_interest_at = %s WHERE id = %s",
+            (new_accrued, now, loan["id"]),
+        )
+        loan["accrued_interest"] = new_accrued
+        loan["last_interest_at"] = now
+        result["interest"] = True
+
+    # ---- 信用分衰减 ----
+    # 贷款逾期（超过 cooldown_days）后，每天 -1 信用分
+    cur.execute("SELECT credit_score FROM children WHERE id = %s", (loan["child_id"],))
+    child = cur.fetchone()
+    if not child:
+        return result
+
+    credit_score = child["credit_score"] or 100
+    level = compute_level(credit_score)
+    # 注：衰减使用当前信用分对应的 cooldown（即使它正在下降）
+    cooldown_days = 7 if level >= 0 else 7 * (2 ** abs(level))
+
+    overdue_start = loan["borrowed_at"] + timedelta(days=cooldown_days)
+    if now <= overdue_start:
+        return result  # 还没逾期
+
+    last_decay_at = loan.get("last_credit_decay_at") or overdue_start
+    decay_days = (now - last_decay_at).days
+
+    if decay_days > 0:
+        cur.execute(
+            "UPDATE children SET credit_score = GREATEST(0, credit_score - %s) WHERE id = %s",
+            (decay_days, loan["child_id"]),
+        )
+        cur.execute(
+            "UPDATE loans SET last_credit_decay_at = %s WHERE id = %s",
+            (now, loan["id"]),
+        )
+        loan["last_credit_decay_at"] = now
+        result["credit_decay"] = True
+
+    return result
+
+
+def refresh_loans(cur, now: datetime) -> dict:
+    """遍历所有 active 贷款结算利息和信用分衰减，返回统计信息。"""
+    cur.execute(
+        "SELECT l.*, c.credit_score"
+        " FROM loans l JOIN children c ON l.child_id = c.id"
+        " WHERE l.status = 'active'"
+    )
+    loans = cur.fetchall()
+
+    stats = {"total_active": len(loans), "interest_updated": 0, "credit_decayed": 0}
+
+    for loan in loans:
+        r = refresh_single_loan(cur, loan, now)
+        if r["interest"]:
+            stats["interest_updated"] += 1
+        if r["credit_decay"]:
+            stats["credit_decayed"] += 1
+
+    return stats

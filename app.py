@@ -20,6 +20,7 @@ from api.routes.logs import router as logs_router
 from api.routes.children import router as children_router
 from api.routes.admin import router as admin_router
 from api.routes.loans import router as loan_router
+from api.models.database import load_simulated_time
 
 # 北京时间 UTC+8
 CST = timezone(timedelta(hours=8))
@@ -123,6 +124,7 @@ def init_db():
     """)
     cur.execute("ALTER TABLE loans ADD COLUMN IF NOT EXISTS accrued_interest INTEGER NOT NULL DEFAULT 0")
     cur.execute("ALTER TABLE loans ADD COLUMN IF NOT EXISTS last_interest_at TIMESTAMP")
+    cur.execute("ALTER TABLE loans ADD COLUMN IF NOT EXISTS last_credit_decay_at TIMESTAMP")
 
     # 用户/积分表
     cur.execute("""
@@ -248,6 +250,7 @@ def init_db():
 # 启动时初始化表结构（部署失败不影响启动）
 try:
     init_db()
+    load_simulated_time()
 except Exception:
     import traceback
     traceback.print_exc()

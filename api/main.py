@@ -6,13 +6,14 @@ Vercel 将 /api/* 请求转发到此文件，冷启动时加载。
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.models.database import init_db
+from api.models.database import init_db, get_db, load_simulated_time
 from api.routes.group import router as group_router
 from api.routes.tasks import router as task_router
 from api.routes.rewards import router as reward_router
 from api.routes.logs import router as logs_router
 from api.routes.children import router as children_router
 from api.routes.admin import router as admin_router
+from api.routes.loans import router as loan_router
 
 app = FastAPI(title="儿童积分系统")
 
@@ -29,14 +30,37 @@ app.include_router(reward_router)
 app.include_router(logs_router)
 app.include_router(children_router)
 app.include_router(admin_router)
+app.include_router(loan_router)
+
 
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
 
 
+@app.get("/api/cron/refresh-loans")
+def cron_refresh_loans():
+    """Vercel Cron 每小时触发：结算所有活跃贷款的利息和信用分衰减。"""
+    from api.config import now_cst
+    from api.services.loan_service import refresh_loans
+
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        now = now_cst()
+        stats = refresh_loans(cur, now)
+        conn.commit()
+        return {"success": True, **stats}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 try:
     init_db()
+    load_simulated_time()
 except Exception:
     import traceback
     traceback.print_exc()
