@@ -1,15 +1,46 @@
 """积分流水 + 惩罚扣分 + 统计，按 group_id 隔离。"""
 
 import json
+import os
 from datetime import timedelta
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Query
 from api.dependencies import get_group_id
 from api.models.database import get_db
 from api.models.schemas import PunishRequest
 from api.config import now_cst
 
 router = APIRouter(prefix="/api", tags=["logs"])
+
+
+@router.get("/health")
+def health():
+    return {"status": "ok"}
+
+
+@router.get("/cron/refresh-loans")
+def cron_refresh_loans(secret: str = Query(None)):
+    """Vercel Cron 每小时触发：结算所有活跃贷款的利息和信用分衰减。"""
+    expected = os.environ.get("CRON_SECRET", "")
+    if not expected:
+        return {"success": False, "detail": "CRON_SECRET not configured"}
+    if secret != expected:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    from api.services.loan_service import refresh_loans
+
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        stats = refresh_loans(cur, now_cst())
+        conn.commit()
+        return {"success": True, **stats}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
 
 # 惩罚冷静期限制
 PUNISH_LIMITS = [
@@ -45,6 +76,11 @@ def _window_name(window: timedelta) -> str:
     if window == timedelta(hours=1):
         return "1 小时"
     return "24 小时"
+
+
+@router.get("/health")
+def health():
+    return {"status": "ok"}
 
 
 @router.get("/logs")

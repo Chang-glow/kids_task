@@ -3,7 +3,7 @@
 技术栈：FastAPI + PostgreSQL (Render 持久化)
 """
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -46,41 +46,6 @@ app.include_router(logs_router)
 app.include_router(children_router)
 app.include_router(admin_router)
 app.include_router(loan_router)
-
-
-@app.get("/health")
-def health_no_prefix():
-    return {"status": "ok", "route": "/health"}
-
-
-@app.get("/api/health")
-def health_with_prefix():
-    return {"status": "ok", "route": "/api/health"}
-
-
-@app.get("/api/cron/refresh-loans")
-def cron_refresh_loans(secret: str = Query(None)):
-    """Vercel Cron 每小时触发：结算所有活跃贷款的利息和信用分衰减。"""
-    expected = os.environ.get("CRON_SECRET", "")
-    if not expected:
-        return {"success": False, "detail": "CRON_SECRET not configured"}
-    if secret != expected:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-
-    from api.services.loan_service import refresh_loans
-
-    conn = get_db()
-    cur = conn.cursor()
-    try:
-        stats = refresh_loans(cur, now_cst())
-        conn.commit()
-        return {"success": True, **stats}
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
-
 
 # 从环境变量获取 PostgreSQL 连接字符串
 DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://localhost/kids_rewards")
