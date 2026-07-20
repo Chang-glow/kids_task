@@ -32,7 +32,7 @@ app.include_router(logs_router)
 app.include_router(children_router)
 app.include_router(admin_router)
 app.include_router(loan_router)
-app.include_router(system_router)
+app.include_router(system_router)  # 不带 prefix，路由已在函数上写完整路径
 
 
 try:
