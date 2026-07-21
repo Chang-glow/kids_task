@@ -10,6 +10,8 @@
 - **多孩子支持** — 一个家庭群组可添加多个孩子，各自独立积分
 - **星级评级** — 完成任务后 1-5 星评价，积分按比例折算（50%-120%）
 - **惩罚冷静期** — 扣分有 10 分钟 / 1 小时 / 24 小时三档上限，避免情绪化操作
+- **限时翻倍** — 每日随机3个任务获得 1.5x-2.0x 倍率，连续中奖权重衰减，admin 可覆盖
+- **悬赏条件** — admin 预设加分/倍率条件，孩子主动接受后完成任务时弹窗判定，奖惩对称
 - **撤回支持** — 所有操作可撤销，`undo_operations` 表记录完整上下文
 - **贷款系统** — 可借积分应急，日利率单利计息，按时还款积累信用分提升贷款额度
 
@@ -34,7 +36,7 @@ cp .env.example .env
 ### 3. 启动后端
 
 ```bash
-python app.py
+python api/main.py
 ```
 
 服务启动后访问：`http://localhost:8000`
@@ -52,8 +54,8 @@ pytest tests/ -v
 
 ```
 .
-├── app.py                  # FastAPI 入口（注册路由、启动初始化）
 ├── api/
+│   ├── main.py             # FastAPI 入口（注册路由、启动初始化）
 │   ├── config.py           # 环境变量、时区、积分折算常量
 │   ├── dependencies.py     # FastAPI 依赖注入（X-Group-Code → group_id）
 │   ├── admin_auth.py       # Admin 密码哈希 + JWT token 签发/验证
@@ -68,11 +70,14 @@ pytest tests/ -v
 │   │   ├── logs.py         # 积分流水、惩罚扣分、统计
 │   │   └── admin.py        # Admin 面板（密码设置/登录/群组管理/撤回）
 │   └── services/
-│       └── point_service.py # 积分计算（星级 × 基础分 → 最终分）
+│       ├── point_service.py     # 积分计算（星级 × 基础分 → 最终分）
+│       ├── boost_service.py     # 每日翻倍（权重抽样、衰减、覆盖）
+│       ├── condition_service.py # 悬赏条件（选择、奖惩计算）
+│       └── loan_service.py      # 贷款服务（利息、信用分）
 ├── static/
 │   ├── index.html          # 主前端 SPA（Alpine.js，约 1400 行）
 │   └── admin.html          # Admin 管理后台
-├── tests/                  # pytest 测试（按路由文件对应）
+├── tests/                  # pytest 测试（96 个测试）
 │   ├── conftest.py
 │   ├── test_smoke.py
 │   ├── test_group.py
@@ -80,7 +85,10 @@ pytest tests/ -v
 │   ├── test_rewards.py
 │   ├── test_children.py
 │   ├── test_logs.py
-│   └── test_admin.py
+│   ├── test_admin.py
+│   ├── test_loans.py
+│   ├── test_boosts.py        # 限时翻倍测试
+│   └── test_conditions.py    # 悬赏条件测试
 ├── old/                    # 旧版单文件 app.py + index.html（保留对照）
 ├── requirements.txt
 ├── requirements-dev.txt
@@ -99,6 +107,12 @@ pytest tests/ -v
 | `point_logs` | 积分流水（earn/spend/punish） |
 | `undo_operations` | 操作历史（JSONB 存储撤回上下文） |
 | `loans` | 贷款记录（本金、剩余本金、日利率、累计利息、状态） |
+| `daily_task_boosts` | 每日翻倍记录（任务 × 日期 × 倍率） |
+| `daily_boost_overrides` | 翻倍覆盖（lock_in / lock_out / manual） |
+| `conditions` | 悬赏条件定义（加分 / 倍率 / 两者） |
+| `condition_task_bindings` | 条件 ↔ 任务多对多绑定 |
+| `daily_condition_selections` | 每日条件选取（群组 × 日期） |
+| `child_condition_acceptances` | 孩子接受条件记录 |
 | `admin_settings` | Admin 密码哈希、系统配置 |
 | `users` | 兼容旧版的单用户表（只读，不再写入） |
 
@@ -123,6 +137,10 @@ pytest tests/ -v
 | POST | `/api/tasks` | 添加任务 |
 | POST | `/api/tasks/complete` | 完成任务 + 星级评级 |
 | DELETE | `/api/tasks/{id}` | 删除任务 |
+| GET | `/api/tasks/boosts/today` | 获取今日翻倍任务映射 |
+| GET | `/api/tasks/conditions/today` | 获取今日悬赏条件列表 |
+| POST | `/api/tasks/conditions/accept` | 接受某任务的条件挑战 |
+| GET | `/api/tasks/{id}/conditions` | 获取任务绑定的今日条件 |
 
 ### 奖励商城
 
@@ -151,8 +169,19 @@ pytest tests/ -v
 | POST | `/api/admin/change-password` | 修改密码 |
 | POST | `/api/admin/undo` | 撤回上一步操作 |
 | GET | `/api/admin/groups` | 列出所有群组 |
+| GET | `/api/admin/boost-overrides` | 读取翻倍覆盖设置 |
+| POST | `/api/admin/boost-overrides` | 设置翻倍覆盖 |
+| GET | `/api/admin/conditions` | 列出悬赏条件 |
+| POST | `/api/admin/conditions` | 创建悬赏条件 |
+| DELETE | `/api/admin/conditions/{id}` | 删除悬赏条件 |
+| POST | `/api/admin/groups/{id}/tasks` | 跨群组添加任务 |
+| DELETE | `/api/admin/groups/{id}/tasks/{tid}` | 跨群组删除任务 |
+| POST | `/api/admin/groups/{id}/rewards` | 跨群组添加奖励 |
+| DELETE | `/api/admin/groups/{id}/rewards/{rid}` | 跨群组删除奖励 |
 | GET | `/api/admin/loan-settings` | 读取贷款设置（利率、最高额度） |
 | POST | `/api/admin/loan-settings` | 保存贷款设置 |
+| GET | `/api/admin/simulated-time` | 读取模拟时间 |
+| POST | `/api/admin/simulated-time` | 设置模拟时间 |
 
 ### 贷款
 
