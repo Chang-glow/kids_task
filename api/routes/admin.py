@@ -432,6 +432,11 @@ def admin_undo(operation_id: int, _token: str = Depends(_require_admin)):
                 (undo_data["points_added"], undo_data["child_id"]),
             )
             cur.execute("UPDATE point_logs SET undone = true WHERE id = %s", (undo_data["log_id"],))
+            for c in undo_data.get("conditions", []):
+                cur.execute(
+                    "UPDATE child_condition_acceptances SET passed = NULL WHERE condition_id = %s",
+                    (c["condition_id"],),
+                )
 
         elif op_type == "redeem_reward":
             cur.execute(
@@ -472,6 +477,15 @@ def admin_undo(operation_id: int, _token: str = Depends(_require_admin)):
                     (undo_data["previous_credit_score"], undo_data["child_id"]),
                 )
             cur.execute("UPDATE point_logs SET undone = true WHERE id = %s", (undo_data["log_id"],))
+
+        elif op_type == "boost_override_change":
+            from api.services.boost_service import set_boost_override
+            prev = undo_data.get("previous_override")
+            if prev:
+                set_boost_override(cur, op["group_id"], prev["task_id"],
+                                   prev["override_type"], prev.get("manual_multiplier"), now)
+            else:
+                set_boost_override(cur, op["group_id"], undo_data["task_id"], "none", None, now)
 
         cur.execute("UPDATE undo_operations SET undone_at = %s WHERE id = %s", (now, operation_id))
         conn.commit()
@@ -689,3 +703,247 @@ def admin_set_simulated_time(req: dict, _token: str = Depends(_require_admin)):
         raise HTTPException(status_code=500, detail="服务器内部错误")
     finally:
         conn.close()
+
+
+# ---- 限时翻倍设置 ----
+
+
+@router.get("/boost-overrides")
+def admin_get_boost_overrides(group_id: int, _token: str = Depends(_require_admin)):
+    """列出群组的所有翻倍覆盖设置。"""
+    from api.services.boost_service import get_boost_overrides
+    conn = get_db()
+    cur = conn.cursor()
+    rows = get_boost_overrides(cur, group_id)
+    conn.close()
+    return rows
+
+
+@router.post("/boost-overrides")
+def admin_set_boost_override(req: dict, _token: str = Depends(_require_admin)):
+    """设置翻倍覆盖。"""
+    from api.services.boost_service import set_boost_override, get_boost_overrides
+    group_id = req.get("group_id")
+    task_id = req.get("task_id")
+    override_type = req.get("override_type", "")
+    manual_multiplier = req.get("manual_multiplier")
+
+    if not group_id or not task_id:
+        raise HTTPException(status_code=400, detail="缺少 group_id 或 task_id")
+    if override_type not in ("lock_in", "lock_out", "manual_multiplier", "none"):
+        raise HTTPException(status_code=400, detail="override_type 无效")
+    if override_type == "manual_multiplier" and (manual_multiplier is None or float(manual_multiplier) <= 0):
+        raise HTTPException(status_code=400, detail="manual_multiplier 必须大于0")
+
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        # 保存旧状态用于撤回
+        old_overrides = get_boost_overrides(cur, group_id)
+        old_override = next((o for o in old_overrides if o["task_id"] == task_id), None)
+        if old_override:
+            for k in list(old_override):
+                if hasattr(old_override[k], 'isoformat'):
+                    old_override[k] = old_override[k].isoformat()
+
+        now = now_cst()
+        result = set_boost_override(cur, group_id, task_id, override_type,
+                                    float(manual_multiplier) if manual_multiplier else None, now)
+        cur.execute(
+            "INSERT INTO undo_operations (group_id, operation_type, description, undo_data, created_at)"
+            " VALUES (%s, %s, %s, %s, %s)",
+            (group_id, "boost_override_change",
+             f"翻倍覆盖: task_id={task_id} {override_type}",
+             json.dumps({"task_id": task_id, "previous_override": old_override}), now),
+        )
+        conn.commit()
+        return result
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception:
+        conn.rollback()
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail="服务器内部错误")
+    finally:
+        conn.close()
+
+
+# ---- 悬赏附加条件管理 ----
+
+
+@router.get("/conditions")
+def admin_get_conditions(group_id: int, _token: str = Depends(_require_admin)):
+    """列出群组的所有条件（含绑定任务名称）。"""
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT c.*, array_agg(t.name ORDER BY t.name) AS task_names"
+        " FROM conditions c"
+        " LEFT JOIN condition_task_bindings ctb ON c.id = ctb.condition_id"
+        " LEFT JOIN tasks t ON ctb.task_id = t.id"
+        " WHERE c.group_id = %s"
+        " GROUP BY c.id ORDER BY c.created_at DESC",
+        (group_id,),
+    )
+    rows = []
+    for r in cur.fetchall():
+        d = dict(r)
+        d["task_names"] = r["task_names"] if r["task_names"] != [None] else []
+        rows.append(d)
+    conn.close()
+    return rows
+
+
+@router.post("/conditions")
+def admin_create_condition(req: dict, _token: str = Depends(_require_admin)):
+    """创建新条件并绑定任务。"""
+    from api.services.condition_service import create_condition
+    group_id = req.get("group_id")
+    name = req.get("name", "").strip()
+    reward_type = req.get("reward_type", "")
+    bonus_value = req.get("bonus_value")
+    multiplier_value = req.get("multiplier_value")
+    task_ids = req.get("task_ids", [])
+
+    if not group_id:
+        raise HTTPException(status_code=400, detail="缺少 group_id")
+    if not name:
+        raise HTTPException(status_code=400, detail="条件名称不能为空")
+    if reward_type not in ("bonus_points", "multiplier", "both"):
+        raise HTTPException(status_code=400, detail="reward_type 无效")
+    if reward_type in ("bonus_points", "both"):
+        bv = int(bonus_value or 0)
+        if bv < 5 or bv > 50 or bv % 5 != 0:
+            raise HTTPException(status_code=400, detail="bonus_value 需为 5-50，步长 5")
+    if reward_type in ("multiplier", "both"):
+        mv = float(multiplier_value or 0)
+        if mv < 1.25 or mv > 5.0:
+            raise HTTPException(status_code=400, detail="multiplier_value 需为 1.25-5.0，步长 0.25")
+
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        result = create_condition(cur, group_id, name, reward_type,
+                                  int(bonus_value) if bonus_value else None,
+                                  float(multiplier_value) if multiplier_value else None,
+                                  task_ids, now_cst())
+        conn.commit()
+        return result
+    except Exception:
+        conn.rollback()
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail="服务器内部错误")
+    finally:
+        conn.close()
+
+
+@router.delete("/conditions/{condition_id}")
+def admin_delete_condition(condition_id: int, _token: str = Depends(_require_admin)):
+    """删除条件（级联清除绑定和每日选择）。"""
+    from api.services.condition_service import delete_condition
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT group_id, name FROM conditions WHERE id = %s", (condition_id,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="条件不存在")
+    group_id = row["group_id"]
+    try:
+        delete_condition(cur, condition_id, group_id)
+        conn.commit()
+        return {"success": True}
+    except Exception:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail="服务器内部错误")
+    finally:
+        conn.close()
+
+
+# ---- 跨群组任务管理 ----
+
+
+@router.post("/groups/{group_id}/tasks")
+def admin_add_task(group_id: int, req: dict, _token: str = Depends(_require_admin)):
+    """Admin 为指定群组添加任务。"""
+    name = req.get("name", "").strip()
+    emoji = req.get("emoji", "📖")
+    base_points = req.get("base_points", 20)
+    is_repeatable = req.get("is_repeatable", False)
+    child_id = req.get("child_id")
+
+    if not name or base_points <= 0:
+        raise HTTPException(status_code=400, detail="任务名称和积分不能为空")
+    conn = get_db()
+    cur = conn.cursor()
+    now = now_cst()
+    cur.execute(
+        "INSERT INTO tasks (name, emoji, base_points, status, is_repeatable, created_at, group_id, child_id)"
+        " VALUES (%s, %s, %s, 'pending', %s, %s, %s, %s) RETURNING id",
+        (name, emoji, base_points, is_repeatable, now, group_id, child_id),
+    )
+    task_id = cur.fetchone()["id"]
+    conn.commit()
+    cur.execute("SELECT * FROM tasks WHERE id = %s", (task_id,))
+    task = cur.fetchone()
+    conn.close()
+    return dict(task)
+
+
+@router.delete("/groups/{group_id}/tasks/{task_id}")
+def admin_delete_task(group_id: int, task_id: int, _token: str = Depends(_require_admin)):
+    """Admin 删除指定群组的任务。"""
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM tasks WHERE id = %s AND group_id = %s", (task_id, group_id))
+    if not cur.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="任务不存在")
+    cur.execute("DELETE FROM tasks WHERE id = %s", (task_id,))
+    conn.commit()
+    conn.close()
+    return {"success": True}
+
+
+# ---- 跨群组奖励管理 ----
+
+
+@router.post("/groups/{group_id}/rewards")
+def admin_add_reward(group_id: int, req: dict, _token: str = Depends(_require_admin)):
+    """Admin 为指定群组添加奖励。"""
+    name = req.get("name", "").strip()
+    emoji = req.get("emoji", "📺")
+    cost_points = req.get("cost_points", 50)
+
+    if not name or cost_points <= 0:
+        raise HTTPException(status_code=400, detail="奖励名称和积分不能为空")
+    conn = get_db()
+    cur = conn.cursor()
+    now = now_cst()
+    cur.execute(
+        "INSERT INTO rewards (name, emoji, cost_points, created_at, group_id)"
+        " VALUES (%s, %s, %s, %s, %s) RETURNING id",
+        (name, emoji, cost_points, now, group_id),
+    )
+    reward_id = cur.fetchone()["id"]
+    conn.commit()
+    cur.execute("SELECT * FROM rewards WHERE id = %s", (reward_id,))
+    reward = cur.fetchone()
+    conn.close()
+    return dict(reward)
+
+
+@router.delete("/groups/{group_id}/rewards/{reward_id}")
+def admin_delete_reward(group_id: int, reward_id: int, _token: str = Depends(_require_admin)):
+    """Admin 删除指定群组的奖励。"""
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM rewards WHERE id = %s AND group_id = %s", (reward_id, group_id))
+    if not cur.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="奖励不存在")
+    cur.execute("DELETE FROM rewards WHERE id = %s", (reward_id,))
+    conn.commit()
+    conn.close()
+    return {"success": True}

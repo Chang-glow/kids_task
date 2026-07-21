@@ -32,6 +32,12 @@ def _cleanup_test_data():
         cur.execute("DELETE FROM admin_settings WHERE key IN ('loan_interest_rate', 'loan_max_amount')")
         if _test_group_ids:
             ids = tuple(_test_group_ids)
+            cur.execute("DELETE FROM child_condition_acceptances WHERE group_id IN %s", (ids,))
+            cur.execute("DELETE FROM daily_condition_selections WHERE group_id IN %s", (ids,))
+            cur.execute("DELETE FROM condition_task_bindings WHERE condition_id IN (SELECT id FROM conditions WHERE group_id IN %s)", (ids,))
+            cur.execute("DELETE FROM conditions WHERE group_id IN %s", (ids,))
+            cur.execute("DELETE FROM daily_task_boosts WHERE group_id IN %s", (ids,))
+            cur.execute("DELETE FROM daily_boost_overrides WHERE group_id IN %s", (ids,))
             cur.execute("DELETE FROM undo_operations WHERE group_id IN %s", (ids,))
             cur.execute("DELETE FROM point_logs WHERE group_id IN %s", (ids,))
             cur.execute("DELETE FROM loans WHERE group_id IN %s", (ids,))

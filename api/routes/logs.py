@@ -42,6 +42,36 @@ def cron_refresh_loans(secret: str = Query(None)):
         conn.close()
 
 
+@router.get("/cron/daily-boost")
+def cron_daily_boost(secret: str = Query(None)):
+    """Vercel Cron 每天 0 点触发：为所有群组预分配翻倍和条件（懒加载兜底）。"""
+    expected = os.environ.get("CRON_SECRET", "")
+    if not expected:
+        return {"success": False, "detail": "CRON_SECRET not configured"}
+    if secret != expected:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    from api.services.boost_service import ensure_daily_boosts
+    from api.services.condition_service import ensure_daily_conditions
+
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT id FROM family_groups")
+        groups = [r["id"] for r in cur.fetchall()]
+        today = now_cst().date()
+        for gid in groups:
+            ensure_daily_boosts(cur, gid, today)
+            ensure_daily_conditions(cur, gid, today)
+        conn.commit()
+        return {"success": True, "groups_processed": len(groups)}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 # 惩罚冷静期限制
 PUNISH_LIMITS = [
     (timedelta(minutes=10), 10),

@@ -221,6 +221,70 @@ input:focus, select:focus {
 .btn-danger { background: #fee2e2; color: #ef4444; }
 .btn-danger:hover { background: #fecaca; box-shadow: 0 4px 12px rgba(239,68,68,0.2); }
 
+/* 悬赏条件 Box */
+.conditions-box {
+  background: linear-gradient(135deg, #fef9f0, #fef3c7);
+  border: 2px solid #fbbf24;
+  border-radius: 16px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+}
+.conditions-box .cond-title {
+  font-weight: 900;
+  color: #92400e;
+  font-size: 0.95rem;
+  margin-bottom: 10px;
+}
+.condition-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  margin-bottom: 6px;
+  background: white;
+  border-radius: 10px;
+  border: 2px solid #fde68a;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #4a5568;
+}
+.condition-item.accepted {
+  border-color: #34d399;
+  background: #f0fdf4;
+}
+.condition-item .cond-reward {
+  margin-left: auto;
+  font-weight: 900;
+  color: #d97706;
+  white-space: nowrap;
+}
+.condition-item .cond-tasks {
+  font-size: 0.72rem;
+  color: #94a3b8;
+  display: block;
+}
+
+/* 今日翻倍文字 */
+.boost-text {
+  padding: 8px 14px;
+  margin-bottom: 12px;
+  background: linear-gradient(135deg, #fef3c7, #fde68a);
+  border-radius: 10px;
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: #92400e;
+}
+.boost-text .b-mult { font-weight: 900; }
+.boost-text .b-mult.b15 { color: #d97706; }
+.boost-text .b-mult.b175 { color: #dc2626; }
+.boost-text .b-mult.b20 { color: #b91c1c; }
+
+/* 条件弹窗 */
+.cond-modal { text-align: center; }
+.cond-modal .cond-name { font-size: 1.2rem; font-weight: 900; color: #1a202c; margin-bottom: 8px; }
+.cond-modal .cond-desc { font-size: 0.9rem; color: #718096; font-weight: 700; margin-bottom: 20px; }
+.cond-modal .cond-reward-big { font-size: 1.4rem; font-weight: 900; color: #d97706; margin-bottom: 20px; }
+
 /* 任务列表 */
 .task-list { display: flex; flex-direction: column; gap: 10px; }
 .task-item {
@@ -236,6 +300,9 @@ input:focus, select:focus {
 }
 .task-item:hover { border-color: var(--mint); transform: translateX(4px); }
 .task-item.done { opacity: 0.55; background: linear-gradient(135deg, #f0fdf4, #dcfce7); }
+.task-item.boost-gold { border-color: #fbbf24; box-shadow: 0 0 8px rgba(251,191,36,0.4); }
+.task-item.boost-red { border-color: #ef4444; box-shadow: 0 0 8px rgba(239,68,68,0.4); }
+.task-item.boost-super { border-color: #ef4444; background: linear-gradient(135deg, #fef3c7, #fff7ed); box-shadow: 0 0 12px rgba(239,68,68,0.5); }
 .task-item .emoji { font-size: 1.8rem; flex-shrink: 0; }
 .task-item .info { flex: 1; min-width: 0; }
 .task-item .name { font-weight: 800; color: #1a202c; font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -791,19 +858,53 @@ input:focus, select:focus {
               </div>
             </div>
 
+            <!-- 今日翻倍提示 -->
+            <div class="boost-text" x-show="Object.keys(boostedTasks).length > 0">
+              🔥 今日翻倍：
+              <template x-for="t in tasks" :key="'b'+t.id">
+                <span x-show="boostedTasks[t.id]">
+                  <span x-text="t.name"></span>
+                  <span class="b-mult"
+                        :class="{ b15: boostedTasks[t.id] <= 1.5, b175: boostedTasks[t.id] > 1.5 && boostedTasks[t.id] < 2.0, b20: boostedTasks[t.id] >= 2.0 }"
+                        x-text="'×' + boostedTasks[t.id]"></span>
+                  &nbsp;
+                </span>
+              </template>
+            </div>
+
+            <!-- 悬赏条件 Box -->
+            <div class="conditions-box" x-show="todaysConditions.length > 0">
+              <div class="cond-title">🎯 今日悬赏条件（选做，有奖有罚）</div>
+              <template x-for="c in todaysConditions" :key="c.id">
+                <div class="condition-item" :class="{ accepted: c.accepted }">
+                  <span x-text="c.accepted ? '✅' : '📋'"></span>
+                  <div style="flex:1;min-width:0;">
+                    <span x-text="c.name"></span>
+                    <span class="cond-tasks" x-text="'绑定: ' + (c.task_names || []).join('、')"></span>
+                  </div>
+                  <span class="cond-reward" x-text="conditionRewardText(c)"></span>
+                  <button x-show="!c.accepted" class="btn btn-sm btn-primary"
+                          @click="acceptCondition(c)" style="flex-shrink:0;">接受</button>
+                </div>
+              </template>
+            </div>
+
             <!-- 任务列表 -->
             <div class="task-list">
               <template x-if="!tasks.length">
                 <div class="empty"><span class="ei">🎯</span>还没有任务，快添加吧！</div>
               </template>
               <template x-for="t in tasks" :key="t.id">
-                <div class="task-item" :class="{ done: t.status === 'done' }">
+                <div class="task-item" :class="{ done: t.status === 'done', 'boost-gold': boostedTasks[t.id] && boostedTasks[t.id] <= 1.5, 'boost-red': boostedTasks[t.id] && boostedTasks[t.id] > 1.5 && boostedTasks[t.id] < 2.0, 'boost-super': boostedTasks[t.id] && boostedTasks[t.id] >= 2.0 }">
                   <div class="emoji" x-text="t.emoji"></div>
                   <div class="info">
                     <div class="name" x-text="t.name"></div>
                     <div class="pts">
                       基础积分：<span x-text="t.base_points"></span> 分
                       <span x-show="t.is_repeatable" class="badge-repeat">🔄 可重复</span>
+                      <span x-show="boostedTasks[t.id]" class="badge-repeat"
+                            style="background:#fef3c7;color:#92400e;margin-left:4px;"
+                            x-text="'🔥×' + boostedTasks[t.id]"></span>
                     </div>
                   </div>
                   <div class="task-actions">
@@ -1070,6 +1171,20 @@ input:focus, select:focus {
   </div>
 </div>
 
+<!-- 条件判定弹窗 -->
+<div class="modal-overlay" :class="{ open: conditionModalOpen }">
+  <div class="modal cond-modal">
+    <h3>🎯 附加条件检查</h3>
+    <div class="cond-name" x-text="currentCondition?.name || ''"></div>
+    <div class="cond-desc">这个附加条件完成了吗？</div>
+    <div class="cond-reward-big" x-text="conditionRewardText(currentCondition)"></div>
+    <div class="modal-actions">
+      <button class="btn btn-danger" @click="answerCondition(false)">❌ 没完成</button>
+      <button class="btn btn-primary" @click="answerCondition(true)">✅ 完成了</button>
+    </div>
+  </div>
+</div>
+
 <!-- Toast 容器 -->
 <div class="toast-container">
   <template x-for="(toast, idx) in toasts" :key="idx">
@@ -1111,6 +1226,14 @@ function app() {
     // -- tasks --
     tasks: [],
     taskForm: { name: '', points: '', emoji: '📖', repeatable: false },
+    boostedTasks: {},
+
+    // -- conditions --
+    todaysConditions: [],
+    conditionModalOpen: false,
+    conditionQueue: [],
+    conditionResults: [],
+    currentConditionIdx: 0,
 
     // -- rewards --
     rewards: [],
@@ -1245,9 +1368,22 @@ function app() {
     async loadTasks() {
       try {
         this.tasks = await this.api(`/tasks`);
+        await this.loadDailyBoosts();
       } catch (e) {
         this.toast('任务加载失败', 'error');
       }
+    },
+
+    async loadDailyBoosts() {
+      try {
+        this.boostedTasks = await this.api('/tasks/boosts/today');
+      } catch (e) { /* ignore */ }
+    },
+
+    async loadTodaysConditions() {
+      try {
+        this.todaysConditions = await this.api('/tasks/conditions/today');
+      } catch (e) { /* ignore */ }
     },
 
     async addTask() {
@@ -1284,13 +1420,60 @@ function app() {
       this.starDescText = '👆 请点击星星评分';
       this.starDescDanger = false;
       this.modalFinalPoints = '-';
-      this.modalOpen = true;
+      this.conditionResults = [];
+
+      // 找出该任务已接受的条件（用 task_id 精确匹配）
+      const taskConds = this.todaysConditions.filter(
+        c => c.accepted && (c.task_ids || []).includes(task.id)
+      );
+      if (taskConds.length > 0) {
+        this.conditionQueue = taskConds;
+        this.currentConditionIdx = 0;
+        this.currentCondition = taskConds[0];
+        this.conditionModalOpen = true;
+      } else {
+        this.modalOpen = true;
+      }
     },
 
     closeModal() {
       this.modalOpen = false;
       this.modalTask = {};
       this.selectedStar = 0;
+    },
+
+    answerCondition(passed) {
+      this.conditionResults.push({
+        condition_id: this.currentCondition.id,
+        passed: passed,
+      });
+      this.currentConditionIdx++;
+      if (this.currentConditionIdx < this.conditionQueue.length) {
+        this.currentCondition = this.conditionQueue[this.currentConditionIdx];
+      } else {
+        this.conditionModalOpen = false;
+        this.currentCondition = null;
+        this.modalOpen = true;
+      }
+    },
+
+    conditionRewardText(c) {
+      if (!c) return '';
+      const parts = [];
+      if (c.bonus_value) parts.push('±' + c.bonus_value + '分');
+      if (c.multiplier_value) parts.push('×' + c.multiplier_value);
+      return parts.join(' ') || '';
+    },
+
+    async acceptCondition(cond) {
+      try {
+        await this.api('/tasks/conditions/accept', 'POST', {
+          condition_id: cond.id,
+          task_id: cond.task_ids[0],
+        });
+        cond.accepted = true;
+        this.toast('已接受条件: ' + cond.name);
+      } catch (e) { this.toast(e.message, 'error'); }
     },
 
     selectStar(v) {
@@ -1314,10 +1497,14 @@ function app() {
     async confirmComplete() {
       if (!this.selectedStar) return;
       try {
-        const res = await this.api(`/tasks/complete`, 'POST', {
+        const body = {
           task_id: this.modalTask.id,
           star_rating: this.selectedStar,
-        });
+        };
+        if (this.conditionResults.length > 0) {
+          body.condition_results = this.conditionResults;
+        }
+        const res = await this.api(`/tasks/complete`, 'POST', body);
         this.closeModal();
         this.toast(res.message);
         await Promise.all([this.loadTasks(), this.loadGroupInfo(), this.loadLogs(true)]);
@@ -1505,6 +1692,7 @@ function app() {
           this.loadTasks(),
           this.loadRewards(),
           this.loadStats(),
+          this.loadTodaysConditions(),
         ]);
         this.loadPunishLimits();
         this.loadLoanStatus();

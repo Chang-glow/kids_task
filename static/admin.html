@@ -140,6 +140,9 @@
       <button class="tab" :class="{ active: tab === 'logs' }" @click="tab = 'logs'">📝 日志管理</button>
       <button class="tab" :class="{ active: tab === 'history' }" @click="tab = 'history'; loadOperations()">🕐 操作历史</button>
       <button class="tab" :class="{ active: tab === 'loan' }" @click="tab = 'loan'; loadLoanSettings(); loadSimulatedTime()">💸 贷款设置</button>
+      <button class="tab" :class="{ active: tab === 'boost' }" @click="tab = 'boost'; loadBoostOverrides()">🔥 限时翻倍</button>
+      <button class="tab" :class="{ active: tab === 'conditions' }" @click="tab = 'conditions'; loadConditions()">🎯 附加条件</button>
+      <button class="tab" :class="{ active: tab === 'manage' }" @click="tab = 'manage'; loadManageData()">📋 任务/奖励</button>
     </div>
 
     <!-- ===== Tab: Overview ===== -->
@@ -361,6 +364,187 @@
         </div>
       </div>
     </div>
+
+    <!-- ===== Tab: 限时翻倍 ===== -->
+    <div x-show="tab === 'boost'">
+      <div class="card">
+        <h3>🔥 限时翻倍覆盖设置</h3>
+        <p style="font-size:0.85rem;color:#6b7280;margin-bottom:12px;">强制锁定/排除任务的每日翻倍，或手动指定倍率。</p>
+        <div class="form-row" style="margin-bottom:12px;">
+          <select x-model="boostGroupId" @change="loadBoostOverrides()" style="flex:1;">
+            <option value="">请选择群组</option>
+            <template x-for="g in groups" :key="g.id">
+              <option :value="g.id" x-text="g.name + ' (' + g.invite_code + ')'"></option>
+            </template>
+          </select>
+        </div>
+        <template x-if="boostGroupId">
+          <div>
+            <div class="form-row" style="gap:8px;margin-bottom:12px;flex-wrap:wrap;">
+              <select x-model="boostForm.task_id" style="flex:2;">
+                <option value="">选择任务</option>
+                <template x-for="t in boostTasks" :key="t.id">
+                  <option :value="t.id" x-text="t.name + ' (' + t.base_points + '分)'"></option>
+                </template>
+              </select>
+              <select x-model="boostForm.override_type" style="flex:1;">
+                <option value="lock_in">🔒 强制翻倍</option>
+                <option value="lock_out">🚫 免疫翻倍</option>
+                <option value="manual_multiplier">✏️ 手动倍率</option>
+                <option value="none">🗑️ 清除覆盖</option>
+              </select>
+              <input type="number" x-model="boostForm.manual_multiplier" placeholder="倍率"
+                     x-show="boostForm.override_type === 'manual_multiplier'"
+                     step="0.25" min="1.0" max="5.0" style="width:80px;">
+              <button class="btn btn-primary btn-sm" @click="saveBoostOverride()">保存</button>
+            </div>
+            <table class="stats-table" x-show="boostOverrides.length > 0">
+              <thead><tr><th>任务</th><th>覆盖类型</th><th>手动倍率</th><th>操作</th></tr></thead>
+              <tbody>
+                <template x-for="o in boostOverrides" :key="o.task_id">
+                  <tr>
+                    <td x-text="o.task_name"></td>
+                    <td x-text="o.override_type"></td>
+                    <td x-text="o.manual_multiplier || '-'"></td>
+                    <td><button class="btn btn-sm btn-danger" @click="boostForm.task_id = o.task_id; boostForm.override_type = 'none'; saveBoostOverride()">清除</button></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- ===== Tab: 附加条件 ===== -->
+    <div x-show="tab === 'conditions'">
+      <div class="card">
+        <h3>🎯 悬赏附加条件管理</h3>
+        <div class="form-row" style="margin-bottom:12px;">
+          <select x-model="condGroupId" @change="loadConditions()" style="flex:1;">
+            <option value="">请选择群组</option>
+            <template x-for="g in groups" :key="g.id">
+              <option :value="g.id" x-text="g.name + ' (' + g.invite_code + ')'"></option>
+            </template>
+          </select>
+        </div>
+        <template x-if="condGroupId">
+          <div>
+            <div style="padding:14px;background:#f8fafc;border-radius:12px;margin-bottom:14px;">
+              <h4 style="margin-bottom:10px;">创建新条件</h4>
+              <div class="form-row" style="gap:8px;flex-wrap:wrap;">
+                <input type="text" x-model="condForm.name" placeholder="条件名称" style="flex:1;min-width:120px;">
+                <select x-model="condForm.reward_type" style="width:120px;">
+                  <option value="bonus_points">加分</option>
+                  <option value="multiplier">倍率</option>
+                  <option value="both">两者</option>
+                </select>
+                <input type="number" x-model="condForm.bonus_value" placeholder="加分"
+                       x-show="condForm.reward_type === 'bonus_points' || condForm.reward_type === 'both'"
+                       step="5" min="5" max="50" style="width:80px;">
+                <input type="number" x-model="condForm.multiplier_value" placeholder="倍率"
+                       x-show="condForm.reward_type === 'multiplier' || condForm.reward_type === 'both'"
+                       step="0.25" min="1.25" max="5.0" style="width:80px;">
+              </div>
+              <div style="margin:8px 0;">
+                <label style="font-size:0.85rem;color:#6b7280;">绑定任务（可多选）:</label>
+                <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;">
+                  <template x-for="t in condTasks" :key="t.id">
+                    <label style="font-size:0.82rem;font-weight:600;cursor:pointer;">
+                      <input type="checkbox" :value="t.id" x-model="condForm.task_ids" style="margin-right:4px;">
+                      <span x-text="t.name"></span>
+                    </label>
+                  </template>
+                </div>
+              </div>
+              <button class="btn btn-primary btn-sm" @click="createCondition()">创建条件</button>
+            </div>
+            <table class="stats-table" x-show="conditions.length > 0">
+              <thead><tr><th>名称</th><th>类型</th><th>奖励</th><th>绑定任务</th><th>操作</th></tr></thead>
+              <tbody>
+                <template x-for="c in conditions" :key="c.id">
+                  <tr>
+                    <td x-text="c.name"></td>
+                    <td x-text="c.reward_type"></td>
+                    <td>
+                      <span x-show="c.bonus_value" x-text="'±'+c.bonus_value+'分'"></span>
+                      <span x-show="c.multiplier_value" x-text="' ×'+c.multiplier_value"></span>
+                    </td>
+                    <td x-text="(c.task_names || []).join(', ')"></td>
+                    <td><button class="btn btn-sm btn-danger" @click="deleteCondition(c.id)">删除</button></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- ===== Tab: 任务/奖励管理 ===== -->
+    <div x-show="tab === 'manage'">
+      <div class="card">
+        <h3>📋 跨群组任务管理</h3>
+        <div class="form-row" style="margin-bottom:12px;">
+          <select x-model="manageGroupId" @change="loadManageData()" style="flex:1;">
+            <option value="">请选择群组</option>
+            <template x-for="g in groups" :key="g.id">
+              <option :value="g.id" x-text="g.name + ' (' + g.invite_code + ')'"></option>
+            </template>
+          </select>
+        </div>
+        <template x-if="manageGroupId">
+          <div>
+            <div style="padding:14px;background:#f8fafc;border-radius:12px;margin-bottom:14px;">
+              <h4 style="margin-bottom:10px;">添加任务</h4>
+              <div class="form-row" style="gap:8px;flex-wrap:wrap;">
+                <input type="text" x-model="manageTaskForm.name" placeholder="任务名称" style="flex:1;min-width:120px;">
+                <input type="text" x-model="manageTaskForm.emoji" placeholder="📖" style="width:60px;">
+                <input type="number" x-model="manageTaskForm.base_points" placeholder="积分" min="1" style="width:80px;">
+                <label style="font-size:0.82rem;"><input type="checkbox" x-model="manageTaskForm.is_repeatable"> 可重复</label>
+                <button class="btn btn-primary btn-sm" @click="addManageTask()">添加</button>
+              </div>
+            </div>
+            <table class="stats-table" x-show="manageTasks.length > 0" style="margin-bottom:20px;">
+              <thead><tr><th>名称</th><th>积分</th><th>状态</th><th>操作</th></tr></thead>
+              <tbody>
+                <template x-for="t in manageTasks" :key="t.id">
+                  <tr>
+                    <td><span x-text="t.emoji + ' ' + t.name"></span></td>
+                    <td x-text="t.base_points"></td>
+                    <td x-text="t.status"></td>
+                    <td><button class="btn btn-sm btn-danger" @click="deleteManageTask(t.id)">删除</button></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+
+            <h4 style="margin-bottom:10px;">添加奖励</h4>
+            <div style="padding:14px;background:#f8fafc;border-radius:12px;margin-bottom:14px;">
+              <div class="form-row" style="gap:8px;flex-wrap:wrap;">
+                <input type="text" x-model="manageRewardForm.name" placeholder="奖励名称" style="flex:1;min-width:120px;">
+                <input type="text" x-model="manageRewardForm.emoji" placeholder="📺" style="width:60px;">
+                <input type="number" x-model="manageRewardForm.cost_points" placeholder="所需积分" min="1" style="width:100px;">
+                <button class="btn btn-primary btn-sm" @click="addManageReward()">添加</button>
+              </div>
+            </div>
+            <table class="stats-table" x-show="manageRewards.length > 0">
+              <thead><tr><th>名称</th><th>所需积分</th><th>操作</th></tr></thead>
+              <tbody>
+                <template x-for="r in manageRewards" :key="r.id">
+                  <tr>
+                    <td><span x-text="r.emoji + ' ' + r.name"></span></td>
+                    <td x-text="r.cost_points"></td>
+                    <td><button class="btn btn-sm btn-danger" @click="deleteManageReward(r.id)">删除</button></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </template>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -406,6 +590,25 @@ function adminApp() {
     loanMaxAmount: 200,
     simulatedTime: '',
     simulatedActive: false,
+
+    // Boost tab
+    boostGroupId: '',
+    boostTasks: [],
+    boostOverrides: [],
+    boostForm: { task_id: '', override_type: 'lock_in', manual_multiplier: null },
+
+    // Conditions tab
+    condGroupId: '',
+    condTasks: [],
+    conditions: [],
+    condForm: { name: '', reward_type: 'bonus_points', bonus_value: null, multiplier_value: null, task_ids: [] },
+
+    // Manage tab
+    manageGroupId: '',
+    manageTasks: [],
+    manageRewards: [],
+    manageTaskForm: { name: '', emoji: '📖', base_points: 20, is_repeatable: false },
+    manageRewardForm: { name: '', emoji: '📺', cost_points: 50 },
 
     // Toast
     toast: '',
@@ -784,13 +987,147 @@ function adminApp() {
       this.showToast(data.message, 'success');
     },
 
+    // === Boost Overrides ===
+    async loadBoostOverrides() {
+      if (!this.boostGroupId) return;
+      const headers = { 'Authorization': 'Bearer ' + this.token };
+      const [r1, r2] = await Promise.all([
+        fetch('/api/admin/boost-overrides?group_id=' + this.boostGroupId, { headers }),
+        fetch('/api/admin/tasks?group_id=' + this.boostGroupId, { headers }),
+      ]);
+      this.boostOverrides = await r1.json();
+      this.boostTasks = await r2.json();
+    },
+
+    async saveBoostOverride() {
+      if (!this.boostForm.task_id) return this.showToast('请选择任务', 'error');
+      const body = {
+        group_id: parseInt(this.boostGroupId),
+        task_id: parseInt(this.boostForm.task_id),
+        override_type: this.boostForm.override_type,
+      };
+      if (this.boostForm.override_type === 'manual_multiplier') {
+        body.manual_multiplier = parseFloat(this.boostForm.manual_multiplier);
+      }
+      const resp = await fetch('/api/admin/boost-overrides', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + this.token },
+        body: JSON.stringify(body),
+      });
+      const data = await resp.json();
+      if (!resp.ok) { this.showToast(data.detail || '保存失败', 'error'); return; }
+      this.boostForm = { task_id: '', override_type: 'lock_in', manual_multiplier: null };
+      this.loadBoostOverrides();
+      this.showToast('翻倍覆盖已更新');
+    },
+
+    // === Conditions ===
+    async loadConditions() {
+      if (!this.condGroupId) return;
+      const headers = { 'Authorization': 'Bearer ' + this.token };
+      const [r1, r2] = await Promise.all([
+        fetch('/api/admin/conditions?group_id=' + this.condGroupId, { headers }),
+        fetch('/api/admin/tasks?group_id=' + this.condGroupId, { headers }),
+      ]);
+      this.conditions = await r1.json();
+      this.condTasks = await r2.json();
+    },
+
+    async createCondition() {
+      if (!this.condForm.name.trim()) return this.showToast('请输入条件名称', 'error');
+      if (!this.condForm.task_ids.length) return this.showToast('请绑定至少一个任务', 'error');
+      const body = {
+        group_id: parseInt(this.condGroupId),
+        name: this.condForm.name.trim(),
+        reward_type: this.condForm.reward_type,
+        task_ids: this.condForm.task_ids.map(Number),
+      };
+      if (this.condForm.reward_type === 'bonus_points' || this.condForm.reward_type === 'both') {
+        body.bonus_value = parseInt(this.condForm.bonus_value);
+      }
+      if (this.condForm.reward_type === 'multiplier' || this.condForm.reward_type === 'both') {
+        body.multiplier_value = parseFloat(this.condForm.multiplier_value);
+      }
+      const resp = await fetch('/api/admin/conditions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + this.token },
+        body: JSON.stringify(body),
+      });
+      const data = await resp.json();
+      if (!resp.ok) { this.showToast(data.detail || '创建失败', 'error'); return; }
+      this.condForm = { name: '', reward_type: 'bonus_points', bonus_value: null, multiplier_value: null, task_ids: [] };
+      this.loadConditions();
+      this.showToast('条件已创建');
+    },
+
+    async deleteCondition(id) {
+      if (!confirm('确定删除此条件？')) return;
+      await fetch('/api/admin/conditions/' + id, { method: 'DELETE', headers: { 'Authorization': 'Bearer ' + this.token } });
+      this.loadConditions();
+      this.showToast('条件已删除');
+    },
+
+    // === Manage Tasks/Rewards ===
+    async loadManageData() {
+      if (!this.manageGroupId) return;
+      const headers = { 'Authorization': 'Bearer ' + this.token };
+      const [r1, r2] = await Promise.all([
+        fetch('/api/admin/tasks?group_id=' + this.manageGroupId, { headers }),
+        fetch('/api/admin/rewards?group_id=' + this.manageGroupId, { headers }),
+      ]);
+      this.manageTasks = await r1.json();
+      this.manageRewards = await r2.json();
+    },
+
+    async addManageTask() {
+      if (!this.manageTaskForm.name.trim()) return this.showToast('请输入任务名称', 'error');
+      const resp = await fetch('/api/admin/groups/' + this.manageGroupId + '/tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + this.token },
+        body: JSON.stringify(this.manageTaskForm),
+      });
+      const data = await resp.json();
+      if (!resp.ok) { this.showToast(data.detail || '添加失败', 'error'); return; }
+      this.manageTaskForm = { name: '', emoji: '📖', base_points: 20, is_repeatable: false };
+      this.loadManageData();
+      this.showToast('任务已添加');
+    },
+
+    async deleteManageTask(id) {
+      if (!confirm('确定删除此任务？')) return;
+      await fetch('/api/admin/groups/' + this.manageGroupId + '/tasks/' + id, { method: 'DELETE', headers: { 'Authorization': 'Bearer ' + this.token } });
+      this.loadManageData();
+      this.showToast('任务已删除');
+    },
+
+    async addManageReward() {
+      if (!this.manageRewardForm.name.trim()) return this.showToast('请输入奖励名称', 'error');
+      const resp = await fetch('/api/admin/groups/' + this.manageGroupId + '/rewards', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + this.token },
+        body: JSON.stringify(this.manageRewardForm),
+      });
+      const data = await resp.json();
+      if (!resp.ok) { this.showToast(data.detail || '添加失败', 'error'); return; }
+      this.manageRewardForm = { name: '', emoji: '📺', cost_points: 50 };
+      this.loadManageData();
+      this.showToast('奖励已添加');
+    },
+
+    async deleteManageReward(id) {
+      if (!confirm('确定删除此奖励？')) return;
+      await fetch('/api/admin/groups/' + this.manageGroupId + '/rewards/' + id, { method: 'DELETE', headers: { 'Authorization': 'Bearer ' + this.token } });
+      this.loadManageData();
+      this.showToast('奖励已删除');
+    },
+
     // Helpers
     tagClass(type) {
-      const m = { manual_edit: 'edit', manual_log_delete: 'delete', manual_log_add: 'add', task_complete: 'task', redeem_reward: 'reward', punish: 'punish', borrow_loan: 'add', repay_loan: 'spend' };
+      const m = { manual_edit: 'edit', manual_log_delete: 'delete', manual_log_add: 'add', task_complete: 'task', redeem_reward: 'reward', punish: 'punish', borrow_loan: 'add', repay_loan: 'spend', boost_override_change: 'edit' };
       return m[type] || 'edit';
     },
     opTypeLabel(type) {
-      const m = { manual_edit: '修改积分', manual_log_delete: '积分变更(删)', manual_log_add: '积分变更(增)', task_complete: '完成任务', redeem_reward: '兑换奖励', punish: '惩罚', borrow_loan: '贷款借款', repay_loan: '贷款还款' };
+      const m = { manual_edit: '修改积分', manual_log_delete: '积分变更(删)', manual_log_add: '积分变更(增)', task_complete: '完成任务', redeem_reward: '兑换奖励', punish: '惩罚', borrow_loan: '贷款借款', repay_loan: '贷款还款', boost_override_change: '翻倍覆盖' };
       return m[type] || type;
     },
     showToast(msg, type) {

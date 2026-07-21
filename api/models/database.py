@@ -153,6 +153,82 @@ def init_db():
         )
     """)
 
+    # ---- 每日任务翻倍 ----
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS daily_task_boosts (
+            id SERIAL PRIMARY KEY,
+            task_id INTEGER REFERENCES tasks(id) ON DELETE CASCADE,
+            group_id INTEGER REFERENCES family_groups(id),
+            boost_date DATE NOT NULL,
+            multiplier NUMERIC(3,2) NOT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+            UNIQUE(task_id, boost_date)
+        )
+    """)
+
+    # ---- 翻倍覆盖设置（admin）----
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS daily_boost_overrides (
+            task_id INTEGER PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,
+            group_id INTEGER REFERENCES family_groups(id),
+            override_type TEXT NOT NULL,
+            manual_multiplier NUMERIC(3,2),
+            created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+    """)
+
+    # ---- 悬赏附加条件 ----
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS conditions (
+            id SERIAL PRIMARY KEY,
+            group_id INTEGER REFERENCES family_groups(id),
+            name TEXT NOT NULL,
+            reward_type TEXT NOT NULL,
+            bonus_value INTEGER,
+            multiplier_value NUMERIC(3,2),
+            created_at TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+    """)
+
+    # ---- 条件-任务绑定（多对多）----
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS condition_task_bindings (
+            id SERIAL PRIMARY KEY,
+            condition_id INTEGER REFERENCES conditions(id) ON DELETE CASCADE,
+            task_id INTEGER REFERENCES tasks(id) ON DELETE CASCADE,
+            UNIQUE(condition_id, task_id)
+        )
+    """)
+
+    # ---- 每日条件选择 ----
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS daily_condition_selections (
+            id SERIAL PRIMARY KEY,
+            group_id INTEGER REFERENCES family_groups(id),
+            condition_id INTEGER REFERENCES conditions(id) ON DELETE CASCADE,
+            selection_date DATE NOT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+            UNIQUE(group_id, condition_id, selection_date)
+        )
+    """)
+
+    # ---- 孩子条件接受记录 ----
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS child_condition_acceptances (
+            id SERIAL PRIMARY KEY,
+            child_id INTEGER REFERENCES children(id) ON DELETE CASCADE,
+            group_id INTEGER REFERENCES family_groups(id),
+            condition_id INTEGER REFERENCES conditions(id),
+            task_id INTEGER REFERENCES tasks(id),
+            accepted BOOLEAN NOT NULL DEFAULT false,
+            passed BOOLEAN,
+            acceptance_date DATE NOT NULL,
+            completed_at TIMESTAMP,
+            created_at TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+    """)
+
     # ---- 兼容旧 users 表（只读，不再写入）----
     cur.execute("""
         CREATE TABLE IF NOT EXISTS users (
