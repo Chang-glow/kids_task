@@ -78,11 +78,6 @@ def _window_name(window: timedelta) -> str:
     return "24 小时"
 
 
-@router.get("/health")
-def health():
-    return {"status": "ok"}
-
-
 @router.get("/logs")
 def get_logs(group_id: int = Depends(get_group_id), offset: int = 0, limit: int = 10):
     """分页获取流水记录"""

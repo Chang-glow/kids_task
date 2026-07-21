@@ -1,20 +1,11 @@
 """Smoke tests: verify test infrastructure and app boot."""
 
 
-def test_root_returns_html(client):
-    """GET / should return the index.html page."""
-    res = client.get("/")
+def test_health_returns_ok(client):
+    """GET /api/health should return ok."""
+    res = client.get("/api/health")
     assert res.status_code == 200
-    assert "text/html" in res.headers["content-type"]
-
-
-def test_get_user_returns_default(client):
-    """GET /api/user should return the default user."""
-    res = client.get("/api/user")
-    assert res.status_code == 200
-    data = res.json()
-    assert data["name"] == "小主人"
-    assert "total_points" in data
+    assert res.json() == {"status": "ok"}
 
 
 def test_get_tasks_returns_list(client):

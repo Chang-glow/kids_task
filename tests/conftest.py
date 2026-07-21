@@ -51,7 +51,7 @@ atexit.register(_cleanup_test_data)
 @pytest.fixture
 def app():
     """Import and return the FastAPI app. Module-level init_db() runs on import."""
-    from app import app as _app
+    from api.main import app as _app
 
     return _app
 
