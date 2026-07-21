@@ -35,7 +35,7 @@ app.include_router(admin_router)
 app.include_router(loan_router)
 
 # 静态文件（开发环境）
-static_dir = os.path.join(os.path.dirname(__file__), "..", "public")
+static_dir = os.path.join(os.path.dirname(__file__), "..", "static")
 if os.path.isdir(static_dir):
     @app.get("/")
     def serve_frontend():
