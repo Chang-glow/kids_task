@@ -203,6 +203,7 @@ def delete_task(task_id: int, group_id: int = Depends(get_group_id)):
     if not cur.fetchone():
         conn.close()
         raise HTTPException(status_code=404, detail="任务不存在")
+    cur.execute("DELETE FROM child_condition_acceptances WHERE task_id = %s", (task_id,))
     cur.execute("DELETE FROM tasks WHERE id = %s", (task_id,))
     conn.commit()
     conn.close()
@@ -241,6 +242,11 @@ def get_todays_conditions(group_id: int = Depends(get_group_id)):
            LEFT JOIN child_condition_acceptances cca
              ON c.id = cca.condition_id AND cca.group_id = %s AND cca.acceptance_date = %s
            WHERE dcs.group_id = %s AND dcs.selection_date = %s
+             AND EXISTS (
+               SELECT 1 FROM condition_task_bindings ctb2
+               JOIN tasks t2 ON ctb2.task_id = t2.id
+               WHERE ctb2.condition_id = c.id AND t2.status != 'done'
+             )
            GROUP BY c.id
            ORDER BY c.id""",
         (group_id, today, group_id, today),

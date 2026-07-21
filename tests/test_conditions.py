@@ -299,7 +299,7 @@ class TestCompleteTaskWithConditions:
         assert r.json()["earned_points"] == 30
 
     def test_complete_with_multiplier_condition_failed(self, client, group_ctx, admin_token):
-        """Complete task with failed multiplier condition divides points."""
+        """Complete task with failed multiplier condition — delta 加算惩罚，对称于奖励。"""
         h = group_ctx["headers"]
         res = client.post("/api/tasks", json={"name": "运动", "emoji": "🏃", "base_points": 30}, headers=h)
         task_id = res.json()["id"]
@@ -333,8 +333,8 @@ class TestCompleteTaskWithConditions:
             headers=h,
         )
         assert r.status_code == 200
-        # base=30, star 4=1.0x, multiply by 1/1.5 → round(30 / 1.5) = 20
-        assert r.json()["earned_points"] == 20
+        # base=30, star 4=1.0x, fail ×1.5 → delta=-(1.5-1)=-0.5, cond=0.5 → round(30*0.5)=15
+        assert r.json()["earned_points"] == 15
 
     def test_complete_without_accepting_condition(self, client, group_ctx, admin_token):
         """Completing a task without accepting conditions ignores them."""

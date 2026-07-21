@@ -220,7 +220,7 @@ def init_db():
             child_id INTEGER REFERENCES children(id) ON DELETE CASCADE,
             group_id INTEGER REFERENCES family_groups(id),
             condition_id INTEGER REFERENCES conditions(id),
-            task_id INTEGER REFERENCES tasks(id),
+            task_id INTEGER REFERENCES tasks(id) ON DELETE CASCADE,
             accepted BOOLEAN NOT NULL DEFAULT false,
             passed BOOLEAN,
             acceptance_date DATE NOT NULL,

@@ -8,7 +8,7 @@ from datetime import datetime, timezone, timedelta
 # 数据库（环境变量优先，Vercel dashboard 或 .env 中设置）
 DATABASE_URL = os.environ.get(
     "DATABASE_URL",
-    "postgresql://localhost:5432/kids_rewards",
+    "postgresql:///kids_rewards",
 )
 
 # 积分星级折算比例

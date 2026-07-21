@@ -239,7 +239,7 @@ def admin_add_log(req: dict, _token: str = Depends(_require_admin)):
     child_id = req.get("child_id")
     group_id = req.get("group_id")
     action = req.get("action", "earn")
-    amount = req.get("amount", 0)
+    amount = int(req.get("amount", 0))
     description = req.get("description", "")
 
     if not child_id or not group_id:
@@ -756,6 +756,11 @@ def admin_set_boost_override(req: dict, _token: str = Depends(_require_admin)):
              f"翻倍覆盖: task_id={task_id} {override_type}",
              json.dumps({"task_id": task_id, "previous_override": old_override}), now),
         )
+        # 清除当天翻倍缓存，下次访问时按新 override 重新生成
+        cur.execute(
+            "DELETE FROM daily_task_boosts WHERE group_id = %s AND boost_date = %s",
+            (group_id, now.date()),
+        )
         conn.commit()
         return result
     except HTTPException:
@@ -869,7 +874,7 @@ def admin_add_task(group_id: int, req: dict, _token: str = Depends(_require_admi
     """Admin 为指定群组添加任务。"""
     name = req.get("name", "").strip()
     emoji = req.get("emoji", "📖")
-    base_points = req.get("base_points", 20)
+    base_points = int(req.get("base_points", 20))
     is_repeatable = req.get("is_repeatable", False)
     child_id = req.get("child_id")
 
@@ -914,7 +919,7 @@ def admin_add_reward(group_id: int, req: dict, _token: str = Depends(_require_ad
     """Admin 为指定群组添加奖励。"""
     name = req.get("name", "").strip()
     emoji = req.get("emoji", "📺")
-    cost_points = req.get("cost_points", 50)
+    cost_points = int(req.get("cost_points", 50))
 
     if not name or cost_points <= 0:
         raise HTTPException(status_code=400, detail="奖励名称和积分不能为空")

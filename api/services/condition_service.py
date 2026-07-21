@@ -6,10 +6,16 @@ from api.config import STAR_MULTIPLIERS
 
 
 def select_daily_conditions(cur, group_id: int, count: int = 4) -> list[dict]:
-    """随机选取当天激活的条件。不足 count 则全选。"""
+    """随机选取当天激活的条件。排除已无待完成任务绑定的"死"条件。不足 count 则全选。"""
     cur.execute(
-        "SELECT id, name, reward_type, bonus_value, multiplier_value"
-        " FROM conditions WHERE group_id = %s",
+        """SELECT c.id, c.name, c.reward_type, c.bonus_value, c.multiplier_value
+           FROM conditions c
+           WHERE c.group_id = %s
+             AND EXISTS (
+               SELECT 1 FROM condition_task_bindings ctb
+               JOIN tasks t ON ctb.task_id = t.id
+               WHERE ctb.condition_id = c.id AND t.status != 'done'
+             )""",
         (group_id,),
     )
     all_conds = [dict(r) for r in cur.fetchall()]
@@ -101,7 +107,7 @@ def calculate_condition_result(
     star_mult = STAR_MULTIPLIERS[star_rating]
     daily_mult = daily_multiplier if daily_multiplier else 1.0
 
-    cond_mult_product = 1.0
+    cond_mult_sum = 0.0  # 所有条件倍率加算（delta 累加）
     cond_bonus = 0
     desc_parts = []
 
@@ -111,7 +117,8 @@ def calculate_condition_result(
 
         if rt in ("multiplier", "both") and c.get("multiplier_value"):
             val = float(c["multiplier_value"])
-            cond_mult_product *= val if passed else (1.0 / val)
+            delta = val - 1.0
+            cond_mult_sum += delta if passed else -delta
 
         if rt in ("bonus_points", "both") and c.get("bonus_value"):
             val = int(c["bonus_value"])
@@ -121,7 +128,8 @@ def calculate_condition_result(
         if desc:
             desc_parts.append(desc)
 
-    raw = base_points * star_mult * daily_mult * cond_mult_product
+    cond_mult = 1.0 + cond_mult_sum
+    raw = base_points * star_mult * daily_mult * cond_mult
     final = max(1, round(raw) + cond_bonus)
 
     desc = " | ".join(desc_parts) if desc_parts else ""

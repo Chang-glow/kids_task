@@ -139,7 +139,8 @@
       <button class="tab" :class="{ active: tab === 'points' }" @click="tab = 'points'">⭐ 积分修改</button>
       <button class="tab" :class="{ active: tab === 'logs' }" @click="tab = 'logs'">📝 日志管理</button>
       <button class="tab" :class="{ active: tab === 'history' }" @click="tab = 'history'; loadOperations()">🕐 操作历史</button>
-      <button class="tab" :class="{ active: tab === 'loan' }" @click="tab = 'loan'; loadLoanSettings(); loadSimulatedTime()">💸 贷款设置</button>
+      <button class="tab" :class="{ active: tab === 'loan' }" @click="tab = 'loan'; loadLoanSettings()">💸 贷款设置</button>
+      <button class="tab" :class="{ active: tab === 'time' }" @click="tab = 'time'; loadSimulatedTime()">🕐 时间模拟</button>
       <button class="tab" :class="{ active: tab === 'boost' }" @click="tab = 'boost'; loadBoostOverrides()">🔥 限时翻倍</button>
       <button class="tab" :class="{ active: tab === 'conditions' }" @click="tab = 'conditions'; loadConditions()">🎯 附加条件</button>
       <button class="tab" :class="{ active: tab === 'manage' }" @click="tab = 'manage'; loadManageData()">📋 任务/奖励</button>
@@ -346,10 +347,14 @@
         <button class="btn btn-primary" @click="saveLoanSettings()">💾 保存设置</button>
       </div>
 
+    </div>
+
+    <!-- ===== Tab: 时间模拟 ===== -->
+    <div x-show="tab === 'time'">
       <div class="card" :style="simulatedActive ? 'border: 2px solid #f59e0b; background: #fffbeb;' : ''">
         <h3>🕐 时间模拟（测试用）</h3>
         <p style="font-size:0.85rem;color:#6b7280;margin-bottom:12px;">
-          设置后整个系统的时间将使用模拟值，方便测试利息累积和信用分变化。
+          设置后整个系统的时间将使用模拟值，方便测试利息累积、每日翻倍和悬赏条件刷新等时间相关功能。
           <template x-if="simulatedActive">
             <span style="color:#d97706;font-weight:600;">⚠ 当前处于模拟时间模式</span>
           </template>
@@ -393,9 +398,14 @@
                 <option value="manual_multiplier">✏️ 手动倍率</option>
                 <option value="none">🗑️ 清除覆盖</option>
               </select>
-              <input type="number" x-model="boostForm.manual_multiplier" placeholder="倍率"
+              <select x-model="boostForm.manual_multiplier"
                      x-show="boostForm.override_type === 'manual_multiplier'"
-                     step="0.25" min="1.0" max="5.0" style="width:80px;">
+                     style="width:80px;">
+                <option value="">选择</option>
+                <option value="1.5">×1.5</option>
+                <option value="1.75">×1.75</option>
+                <option value="2.0">×2.0</option>
+              </select>
               <button class="btn btn-primary btn-sm" @click="saveBoostOverride()">保存</button>
             </div>
             <table class="stats-table" x-show="boostOverrides.length > 0">
@@ -499,7 +509,12 @@
               <h4 style="margin-bottom:10px;">添加任务</h4>
               <div class="form-row" style="gap:8px;flex-wrap:wrap;">
                 <input type="text" x-model="manageTaskForm.name" placeholder="任务名称" style="flex:1;min-width:120px;">
-                <input type="text" x-model="manageTaskForm.emoji" placeholder="📖" style="width:60px;">
+                <select x-model="manageTaskForm.emoji" style="width:60px;">
+                  <option value="📖">📖</option><option value="📝">📝</option><option value="🎒">🎒</option>
+                  <option value="🏃">🏃</option><option value="🎹">🎹</option><option value="🧹">🧹</option>
+                  <option value="🍽️">🍽️</option><option value="🛏️">🛏️</option><option value="🎨">🎨</option>
+                  <option value="📚">📚</option><option value="🏀">🏀</option><option value="🧠">🧠</option>
+                </select>
                 <input type="number" x-model="manageTaskForm.base_points" placeholder="积分" min="1" style="width:80px;">
                 <label style="font-size:0.82rem;"><input type="checkbox" x-model="manageTaskForm.is_repeatable"> 可重复</label>
                 <button class="btn btn-primary btn-sm" @click="addManageTask()">添加</button>
@@ -523,7 +538,11 @@
             <div style="padding:14px;background:#f8fafc;border-radius:12px;margin-bottom:14px;">
               <div class="form-row" style="gap:8px;flex-wrap:wrap;">
                 <input type="text" x-model="manageRewardForm.name" placeholder="奖励名称" style="flex:1;min-width:120px;">
-                <input type="text" x-model="manageRewardForm.emoji" placeholder="📺" style="width:60px;">
+                <select x-model="manageRewardForm.emoji" style="width:60px;">
+                  <option value="📺">📺</option><option value="🎮">🎮</option><option value="🍦">🍦</option>
+                  <option value="🎁">🎁</option><option value="🎬">🎬</option><option value="🧸">🧸</option>
+                  <option value="🍕">🍕</option><option value="🎵">🎵</option><option value="🌟">🌟</option>
+                </select>
                 <input type="number" x-model="manageRewardForm.cost_points" placeholder="所需积分" min="1" style="width:100px;">
                 <button class="btn btn-primary btn-sm" @click="addManageReward()">添加</button>
               </div>
@@ -1086,8 +1105,12 @@ function adminApp() {
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + this.token },
         body: JSON.stringify(this.manageTaskForm),
       });
-      const data = await resp.json();
-      if (!resp.ok) { this.showToast(data.detail || '添加失败', 'error'); return; }
+      if (!resp.ok) {
+        let detail = '添加失败';
+        try { const data = await resp.json(); detail = data.detail || detail; } catch(e) {}
+        this.showToast(detail, 'error');
+        return;
+      }
       this.manageTaskForm = { name: '', emoji: '📖', base_points: 20, is_repeatable: false };
       this.loadManageData();
       this.showToast('任务已添加');
@@ -1107,8 +1130,12 @@ function adminApp() {
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + this.token },
         body: JSON.stringify(this.manageRewardForm),
       });
-      const data = await resp.json();
-      if (!resp.ok) { this.showToast(data.detail || '添加失败', 'error'); return; }
+      if (!resp.ok) {
+        let detail = '添加失败';
+        try { const data = await resp.json(); detail = data.detail || detail; } catch(e) {}
+        this.showToast(detail, 'error');
+        return;
+      }
       this.manageRewardForm = { name: '', emoji: '📺', cost_points: 50 };
       this.loadManageData();
       this.showToast('奖励已添加');

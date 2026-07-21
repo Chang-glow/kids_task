@@ -873,19 +873,24 @@ input:focus, select:focus {
             </div>
 
             <!-- 悬赏条件 Box -->
-            <div class="conditions-box" x-show="todaysConditions.length > 0">
+            <div class="conditions-box">
               <div class="cond-title">🎯 今日悬赏条件（选做，有奖有罚）</div>
-              <template x-for="c in todaysConditions" :key="c.id">
-                <div class="condition-item" :class="{ accepted: c.accepted }">
-                  <span x-text="c.accepted ? '✅' : '📋'"></span>
-                  <div style="flex:1;min-width:0;">
-                    <span x-text="c.name"></span>
-                    <span class="cond-tasks" x-text="'绑定: ' + (c.task_names || []).join('、')"></span>
+              <template x-if="todaysConditions.length > 0">
+                <template x-for="c in todaysConditions" :key="c.id">
+                  <div class="condition-item" :class="{ accepted: c.accepted }">
+                    <span x-text="c.accepted ? '✅' : '📋'"></span>
+                    <div style="flex:1;min-width:0;">
+                      <span x-text="c.name"></span>
+                      <span class="cond-tasks" x-text="'绑定: ' + (c.task_names || []).join('、')"></span>
+                    </div>
+                    <span class="cond-reward" x-text="conditionRewardText(c)"></span>
+                    <button x-show="!c.accepted" class="btn btn-sm btn-primary"
+                            @click="acceptCondition(c)" style="flex-shrink:0;">接受</button>
                   </div>
-                  <span class="cond-reward" x-text="conditionRewardText(c)"></span>
-                  <button x-show="!c.accepted" class="btn btn-sm btn-primary"
-                          @click="acceptCondition(c)" style="flex-shrink:0;">接受</button>
-                </div>
+                </template>
+              </template>
+              <template x-if="!todaysConditions.length">
+                <div class="empty">🎯 目前还没有悬赏任务哦，让家长添加一些吧！</div>
               </template>
             </div>
 
@@ -1025,7 +1030,8 @@ input:focus, select:focus {
       </div><!-- grid-2 结束 -->
 
       <!-- 贷款中心 -->
-      <div class="card" style="margin-bottom:20px;" x-show="loanData">
+      <template x-if="loanData">
+      <div class="card" style="margin-bottom:20px;">
         <div class="card-title">💸 贷款中心</div>
 
         <!-- 信用状态 -->
@@ -1097,6 +1103,7 @@ input:focus, select:focus {
           </template>
         </div>
       </div>
+      </template>
 
       <!-- 流水账记录（可折叠） -->
       <div class="log-section">
@@ -1162,6 +1169,8 @@ input:focus, select:focus {
     <div class="points-preview">
       基础积分 <span x-text="modalTask.base_points"></span> 分 →
       <span class="big" x-text="modalFinalPoints">-</span> 分
+      <div class="calc-breakdown" x-show="modalCalcBreakdown" x-text="modalCalcBreakdown"
+           style="font-size:0.78rem;color:#94a3b8;margin-top:4px;font-family:monospace;"></div>
     </div>
 
     <div class="modal-actions">
@@ -1234,6 +1243,9 @@ function app() {
     conditionQueue: [],
     conditionResults: [],
     currentConditionIdx: 0,
+    currentCondition: null,
+    modalFinalPoints: '-',
+    modalCalcBreakdown: '',
 
     // -- rewards --
     rewards: [],
@@ -1420,6 +1432,7 @@ function app() {
       this.starDescText = '👆 请点击星星评分';
       this.starDescDanger = false;
       this.modalFinalPoints = '-';
+      this.modalCalcBreakdown = '';
       this.conditionResults = [];
 
       // 找出该任务已接受的条件（用 task_id 精确匹配）
@@ -1486,12 +1499,39 @@ function app() {
         this.starDescText = '👆 请点击星星评分';
         this.starDescDanger = false;
         this.modalFinalPoints = '-';
+        this.modalCalcBreakdown = '';
         return;
       }
       const info = STAR_INFO[v];
       this.starDescText = info.desc;
       this.starDescDanger = info.cls === 'danger';
-      this.modalFinalPoints = Math.floor(this.modalTask.base_points * STAR_MULTS[v]);
+      const base = this.modalTask.base_points;
+      const star = STAR_MULTS[v];
+      const boostMult = this.boostedTasks[this.modalTask.id] || 1;
+
+      // 计算悬赏条件（同一乘区加算）
+      let condMultSum = 0;
+      let condBonus = 0;
+      for (const cr of this.conditionResults) {
+        const c = this.todaysConditions.find(x => x.id === cr.condition_id);
+        if (!c) continue;
+        if (c.bonus_value) condBonus += cr.passed ? c.bonus_value : -c.bonus_value;
+        if (c.multiplier_value) {
+          const delta = parseFloat(c.multiplier_value) - 1;
+          condMultSum += cr.passed ? delta : -delta;
+        }
+      }
+      const condMult = 1 + condMultSum;
+
+      const final = Math.max(1, Math.floor(base * star * boostMult * condMult + condBonus));
+      this.modalFinalPoints = final;
+
+      // 构建计算分解
+      let parts = [base, '×' + star, '×' + boostMult];
+      if (condMult !== 1) parts.push('×' + condMult.toFixed(2));
+      if (condBonus !== 0) parts.push((condBonus > 0 ? '+' : '') + condBonus);
+      parts.push('=' + final);
+      this.modalCalcBreakdown = parts.join(' ');
     },
 
     async confirmComplete() {
