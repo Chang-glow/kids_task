@@ -45,6 +45,10 @@ if os.path.isdir(static_dir):
     def serve_admin():
         return FileResponse(os.path.join(static_dir, "admin.html"))
 
+    @app.get("/{full_path:path}")
+    def serve_spa(full_path: str):  # noqa: ARG001
+        return FileResponse(os.path.join(static_dir, "index.html"))
+
 
 try:
     init_db()
