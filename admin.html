@@ -141,7 +141,7 @@
     </div>
 
     <!-- Tabs -->
-    <div class="tabs">
+    <div class="tabs" @wheel.prevent="(e) => e.currentTarget.scrollLeft += e.deltaY">
       <button class="tab" :class="{ active: tab === 'overview' }" @click="tab = 'overview'">📋 总览</button>
       <button class="tab" :class="{ active: tab === 'points' }" @click="tab = 'points'">⭐ 积分修改</button>
       <button class="tab" :class="{ active: tab === 'logs' }" @click="tab = 'logs'">📝 日志管理</button>
