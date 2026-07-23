@@ -1032,18 +1032,18 @@ function adminApp() {
     // === Boost Overrides ===
     async loadBoostOverrides() {
       if (!this.activeGroupId) return;
+      const headers = { 'Authorization': 'Bearer ' + this.token };
       try {
-        const headers = { 'Authorization': 'Bearer ' + this.token };
-        const [r1, r2] = await Promise.all([
-          fetch('/api/admin/boost-overrides?group_id=' + this.activeGroupId, { headers }),
-          fetch('/api/admin/tasks?group_id=' + this.activeGroupId, { headers }),
-        ]);
-        if (!r1.ok || !r2.ok) throw new Error('加载失败');
-        this.boostOverrides = await r1.json();
-        this.boostTasks = await r2.json();
-      } catch (e) {
-        this.showToast('翻倍数据加载失败，请刷新重试', 'error');
-      }
+        const r = await fetch('/api/admin/boost-overrides?group_id=' + this.activeGroupId, { headers });
+        if (r.ok) { this.boostOverrides = await r.json(); }
+      } catch (e) { /* ignore */ }
+      try {
+        const r = await fetch('/api/admin/tasks?group_id=' + this.activeGroupId, { headers });
+        if (r.ok) {
+          const tasks = await r.json();
+          this.boostTasks = Array.isArray(tasks) ? tasks : [];
+        }
+      } catch (e) { /* ignore */ }
     },
 
     async saveBoostOverride() {
@@ -1071,18 +1071,19 @@ function adminApp() {
     // === Conditions ===
     async loadConditions() {
       if (!this.activeGroupId) return;
+      const headers = { 'Authorization': 'Bearer ' + this.token };
+      // 分别加载条件和任务，互不阻塞
       try {
-        const headers = { 'Authorization': 'Bearer ' + this.token };
-        const [r1, r2] = await Promise.all([
-          fetch('/api/admin/conditions?group_id=' + this.activeGroupId, { headers }),
-          fetch('/api/admin/tasks?group_id=' + this.activeGroupId, { headers }),
-        ]);
-        if (!r1.ok || !r2.ok) throw new Error('加载失败');
-        this.conditions = await r1.json();
-        this.condTasks = await r2.json();
-      } catch (e) {
-        this.showToast('条件数据加载失败，请刷新重试', 'error');
-      }
+        const r = await fetch('/api/admin/conditions?group_id=' + this.activeGroupId, { headers });
+        if (r.ok) { this.conditions = await r.json(); }
+      } catch (e) { /* 条件加载失败，保留旧数据 */ }
+      try {
+        const r = await fetch('/api/admin/tasks?group_id=' + this.activeGroupId, { headers });
+        if (r.ok) {
+          const tasks = await r.json();
+          this.condTasks = Array.isArray(tasks) ? tasks : [];
+        }
+      } catch (e) { /* 任务加载失败，保留旧数据 */ }
     },
 
     editCondition(c) {
@@ -1111,10 +1112,14 @@ function adminApp() {
         task_ids: this.condForm.task_ids.map(Number),
       };
       if (this.condForm.reward_type === 'bonus_points' || this.condForm.reward_type === 'both') {
-        body.bonus_value = parseInt(this.condForm.bonus_value);
+        const bv = parseInt(this.condForm.bonus_value) || 0;
+        if (bv < 5 || bv > 50 || bv % 5 !== 0) return this.showToast('加分需为 5-50，步长 5', 'error');
+        body.bonus_value = bv;
       }
       if (this.condForm.reward_type === 'multiplier' || this.condForm.reward_type === 'both') {
-        body.multiplier_value = parseFloat(this.condForm.multiplier_value);
+        const mv = parseFloat(this.condForm.multiplier_value) || 0;
+        if (mv < 1.25 || mv > 5.0) return this.showToast('倍率需为 1.25-5.0，步长 0.25', 'error');
+        body.multiplier_value = mv;
       }
       const isEdit = !!this.editingConditionId;
       const url = isEdit ? '/api/admin/conditions/' + this.editingConditionId : '/api/admin/conditions';
@@ -1127,8 +1132,8 @@ function adminApp() {
       });
       const data = await resp.json();
       if (!resp.ok) { this.showToast(data.detail || '保存失败', 'error'); return; }
+      await this.loadConditions();
       this.cancelEditCondition();
-      this.loadConditions();
       this.showToast(isEdit ? '条件已更新' : '条件已创建');
     },
 
@@ -1142,18 +1147,21 @@ function adminApp() {
     // === Manage Tasks/Rewards ===
     async loadManageData() {
       if (!this.activeGroupId) return;
+      const headers = { 'Authorization': 'Bearer ' + this.token };
       try {
-        const headers = { 'Authorization': 'Bearer ' + this.token };
-        const [r1, r2] = await Promise.all([
-          fetch('/api/admin/tasks?group_id=' + this.activeGroupId, { headers }),
-          fetch('/api/admin/rewards?group_id=' + this.activeGroupId, { headers }),
-        ]);
-        if (!r1.ok || !r2.ok) throw new Error('加载失败');
-        this.manageTasks = await r1.json();
-        this.manageRewards = await r2.json();
-      } catch (e) {
-        this.showToast('任务/奖励数据加载失败，请刷新重试', 'error');
-      }
+        const r = await fetch('/api/admin/tasks?group_id=' + this.activeGroupId, { headers });
+        if (r.ok) {
+          const tasks = await r.json();
+          this.manageTasks = Array.isArray(tasks) ? tasks : [];
+        }
+      } catch (e) { /* ignore */ }
+      try {
+        const r = await fetch('/api/admin/rewards?group_id=' + this.activeGroupId, { headers });
+        if (r.ok) {
+          const rewards = await r.json();
+          this.manageRewards = Array.isArray(rewards) ? rewards : [];
+        }
+      } catch (e) { /* ignore */ }
     },
 
     async addManageTask() {
