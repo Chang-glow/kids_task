@@ -833,6 +833,12 @@ def admin_create_condition(req: dict, _token: str = Depends(_require_admin)):
                                   int(bonus_value) if bonus_value else None,
                                   float(multiplier_value) if multiplier_value else None,
                                   task_ids, now_cst())
+        # 清除当日条件缓存，强制重新选取，使新条件立即可见
+        today = now_cst().date()
+        cur.execute(
+            "DELETE FROM daily_condition_selections WHERE group_id = %s AND selection_date = %s",
+            (group_id, today),
+        )
         conn.commit()
         return result
     except Exception:
@@ -857,6 +863,12 @@ def admin_delete_condition(condition_id: int, _token: str = Depends(_require_adm
     group_id = row["group_id"]
     try:
         delete_condition(cur, condition_id, group_id)
+        # 清除当日条件缓存，强制重新选取
+        today = now_cst().date()
+        cur.execute(
+            "DELETE FROM daily_condition_selections WHERE group_id = %s AND selection_date = %s",
+            (group_id, today),
+        )
         conn.commit()
         return {"success": True}
     except Exception:

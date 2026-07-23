@@ -2,3 +2,5 @@
 __pycache__/
 *.pyc
 kids_rewards.db
+.vercel
+.env*

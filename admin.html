@@ -30,8 +30,9 @@
   /* Dashboard */
   .header { background: linear-gradient(135deg, var(--c1), var(--c2)); color: #fff; padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; border-radius: 12px; margin-bottom: 20px; }
   .header h1 { font-size: 20px; }
-  .tabs { display: flex; gap: 4px; margin-bottom: 20px; background: var(--card); border-radius: 12px; padding: 4px; box-shadow: 0 2px 10px rgba(0,0,0,.05); }
-  .tab { flex: 1; padding: 10px 16px; text-align: center; border-radius: 10px; cursor: pointer; font-size: 14px; font-weight: 600; color: var(--muted); transition: all .2s; border: none; background: transparent; }
+  .tabs { display: flex; gap: 4px; margin-bottom: 20px; background: var(--card); border-radius: 12px; padding: 4px; box-shadow: 0 2px 10px rgba(0,0,0,.05); overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab { flex-shrink: 0; white-space: nowrap; padding: 10px 14px; text-align: center; border-radius: 10px; cursor: pointer; font-size: 14px; font-weight: 600; color: var(--muted); transition: all .2s; border: none; background: transparent; }
   .tab.active { background: linear-gradient(135deg, var(--c1), var(--c2)); color: #fff; }
 
   /* Cards */
@@ -141,9 +142,9 @@
       <button class="tab" :class="{ active: tab === 'history' }" @click="tab = 'history'; loadOperations()">🕐 操作历史</button>
       <button class="tab" :class="{ active: tab === 'loan' }" @click="tab = 'loan'; loadLoanSettings()">💸 贷款设置</button>
       <button class="tab" :class="{ active: tab === 'time' }" @click="tab = 'time'; loadSimulatedTime()">🕐 时间模拟</button>
-      <button class="tab" :class="{ active: tab === 'boost' }" @click="tab = 'boost'; loadBoostOverrides()">🔥 限时翻倍</button>
-      <button class="tab" :class="{ active: tab === 'conditions' }" @click="tab = 'conditions'; loadConditions()">🎯 附加条件</button>
-      <button class="tab" :class="{ active: tab === 'manage' }" @click="tab = 'manage'; loadManageData()">📋 任务/奖励</button>
+      <button class="tab" :class="{ active: tab === 'boost' }" @click="tab = 'boost'; onActiveGroupChange()">🔥 限时翻倍</button>
+      <button class="tab" :class="{ active: tab === 'conditions' }" @click="tab = 'conditions'; onActiveGroupChange()">🎯 附加条件</button>
+      <button class="tab" :class="{ active: tab === 'manage' }" @click="tab = 'manage'; onActiveGroupChange()">📋 任务/奖励</button>
     </div>
 
     <!-- ===== Tab: Overview ===== -->
@@ -376,14 +377,14 @@
         <h3>🔥 限时翻倍覆盖设置</h3>
         <p style="font-size:0.85rem;color:#6b7280;margin-bottom:12px;">强制锁定/排除任务的每日翻倍，或手动指定倍率。</p>
         <div class="form-row" style="margin-bottom:12px;">
-          <select x-model="boostGroupId" @change="loadBoostOverrides()" style="flex:1;">
+          <select x-model="activeGroupId" @change="onActiveGroupChange()" style="flex:1;">
             <option value="">请选择群组</option>
             <template x-for="g in groups" :key="g.id">
               <option :value="g.id" x-text="g.name + ' (' + g.invite_code + ')'"></option>
             </template>
           </select>
         </div>
-        <template x-if="boostGroupId">
+        <template x-if="activeGroupId">
           <div>
             <div class="form-row" style="gap:8px;margin-bottom:12px;flex-wrap:wrap;">
               <select x-model="boostForm.task_id" style="flex:2;">
@@ -431,14 +432,14 @@
       <div class="card">
         <h3>🎯 悬赏附加条件管理</h3>
         <div class="form-row" style="margin-bottom:12px;">
-          <select x-model="condGroupId" @change="loadConditions()" style="flex:1;">
+          <select x-model="activeGroupId" @change="onActiveGroupChange()" style="flex:1;">
             <option value="">请选择群组</option>
             <template x-for="g in groups" :key="g.id">
               <option :value="g.id" x-text="g.name + ' (' + g.invite_code + ')'"></option>
             </template>
           </select>
         </div>
-        <template x-if="condGroupId">
+        <template x-if="activeGroupId">
           <div>
             <div style="padding:14px;background:#f8fafc;border-radius:12px;margin-bottom:14px;">
               <h4 style="margin-bottom:10px;">创建新条件</h4>
@@ -496,14 +497,14 @@
       <div class="card">
         <h3>📋 跨群组任务管理</h3>
         <div class="form-row" style="margin-bottom:12px;">
-          <select x-model="manageGroupId" @change="loadManageData()" style="flex:1;">
+          <select x-model="activeGroupId" @change="onActiveGroupChange()" style="flex:1;">
             <option value="">请选择群组</option>
             <template x-for="g in groups" :key="g.id">
               <option :value="g.id" x-text="g.name + ' (' + g.invite_code + ')'"></option>
             </template>
           </select>
         </div>
-        <template x-if="manageGroupId">
+        <template x-if="activeGroupId">
           <div>
             <div style="padding:14px;background:#f8fafc;border-radius:12px;margin-bottom:14px;">
               <h4 style="margin-bottom:10px;">添加任务</h4>
@@ -611,19 +612,19 @@ function adminApp() {
     simulatedActive: false,
 
     // Boost tab
-    boostGroupId: '',
+    activeGroupId: '',
+
+    // Boost tab
     boostTasks: [],
     boostOverrides: [],
     boostForm: { task_id: '', override_type: 'lock_in', manual_multiplier: null },
 
     // Conditions tab
-    condGroupId: '',
     condTasks: [],
     conditions: [],
     condForm: { name: '', reward_type: 'bonus_points', bonus_value: null, multiplier_value: null, task_ids: [] },
 
     // Manage tab
-    manageGroupId: '',
     manageTasks: [],
     manageRewards: [],
     manageTaskForm: { name: '', emoji: '📖', base_points: 20, is_repeatable: false },
@@ -764,6 +765,13 @@ function adminApp() {
       this.password1 = '';
       this.showReset = false;
       this.showChangePwd = false;
+    },
+
+    onActiveGroupChange() {
+      if (!this.activeGroupId) return;
+      if (this.tab === 'boost') this.loadBoostOverrides();
+      else if (this.tab === 'conditions') this.loadConditions();
+      else if (this.tab === 'manage') this.loadManageData();
     },
 
     // Points
@@ -1008,11 +1016,11 @@ function adminApp() {
 
     // === Boost Overrides ===
     async loadBoostOverrides() {
-      if (!this.boostGroupId) return;
+      if (!this.activeGroupId) return;
       const headers = { 'Authorization': 'Bearer ' + this.token };
       const [r1, r2] = await Promise.all([
-        fetch('/api/admin/boost-overrides?group_id=' + this.boostGroupId, { headers }),
-        fetch('/api/admin/tasks?group_id=' + this.boostGroupId, { headers }),
+        fetch('/api/admin/boost-overrides?group_id=' + this.activeGroupId, { headers }),
+        fetch('/api/admin/tasks?group_id=' + this.activeGroupId, { headers }),
       ]);
       this.boostOverrides = await r1.json();
       this.boostTasks = await r2.json();
@@ -1021,7 +1029,7 @@ function adminApp() {
     async saveBoostOverride() {
       if (!this.boostForm.task_id) return this.showToast('请选择任务', 'error');
       const body = {
-        group_id: parseInt(this.boostGroupId),
+        group_id: parseInt(this.activeGroupId),
         task_id: parseInt(this.boostForm.task_id),
         override_type: this.boostForm.override_type,
       };
@@ -1042,11 +1050,11 @@ function adminApp() {
 
     // === Conditions ===
     async loadConditions() {
-      if (!this.condGroupId) return;
+      if (!this.activeGroupId) return;
       const headers = { 'Authorization': 'Bearer ' + this.token };
       const [r1, r2] = await Promise.all([
-        fetch('/api/admin/conditions?group_id=' + this.condGroupId, { headers }),
-        fetch('/api/admin/tasks?group_id=' + this.condGroupId, { headers }),
+        fetch('/api/admin/conditions?group_id=' + this.activeGroupId, { headers }),
+        fetch('/api/admin/tasks?group_id=' + this.activeGroupId, { headers }),
       ]);
       this.conditions = await r1.json();
       this.condTasks = await r2.json();
@@ -1056,7 +1064,7 @@ function adminApp() {
       if (!this.condForm.name.trim()) return this.showToast('请输入条件名称', 'error');
       if (!this.condForm.task_ids.length) return this.showToast('请绑定至少一个任务', 'error');
       const body = {
-        group_id: parseInt(this.condGroupId),
+        group_id: parseInt(this.activeGroupId),
         name: this.condForm.name.trim(),
         reward_type: this.condForm.reward_type,
         task_ids: this.condForm.task_ids.map(Number),
@@ -1088,11 +1096,11 @@ function adminApp() {
 
     // === Manage Tasks/Rewards ===
     async loadManageData() {
-      if (!this.manageGroupId) return;
+      if (!this.activeGroupId) return;
       const headers = { 'Authorization': 'Bearer ' + this.token };
       const [r1, r2] = await Promise.all([
-        fetch('/api/admin/tasks?group_id=' + this.manageGroupId, { headers }),
-        fetch('/api/admin/rewards?group_id=' + this.manageGroupId, { headers }),
+        fetch('/api/admin/tasks?group_id=' + this.activeGroupId, { headers }),
+        fetch('/api/admin/rewards?group_id=' + this.activeGroupId, { headers }),
       ]);
       this.manageTasks = await r1.json();
       this.manageRewards = await r2.json();
@@ -1100,7 +1108,7 @@ function adminApp() {
 
     async addManageTask() {
       if (!this.manageTaskForm.name.trim()) return this.showToast('请输入任务名称', 'error');
-      const resp = await fetch('/api/admin/groups/' + this.manageGroupId + '/tasks', {
+      const resp = await fetch('/api/admin/groups/' + this.activeGroupId + '/tasks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + this.token },
         body: JSON.stringify(this.manageTaskForm),
@@ -1118,14 +1126,14 @@ function adminApp() {
 
     async deleteManageTask(id) {
       if (!confirm('确定删除此任务？')) return;
-      await fetch('/api/admin/groups/' + this.manageGroupId + '/tasks/' + id, { method: 'DELETE', headers: { 'Authorization': 'Bearer ' + this.token } });
+      await fetch('/api/admin/groups/' + this.activeGroupId + '/tasks/' + id, { method: 'DELETE', headers: { 'Authorization': 'Bearer ' + this.token } });
       this.loadManageData();
       this.showToast('任务已删除');
     },
 
     async addManageReward() {
       if (!this.manageRewardForm.name.trim()) return this.showToast('请输入奖励名称', 'error');
-      const resp = await fetch('/api/admin/groups/' + this.manageGroupId + '/rewards', {
+      const resp = await fetch('/api/admin/groups/' + this.activeGroupId + '/rewards', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + this.token },
         body: JSON.stringify(this.manageRewardForm),
@@ -1143,7 +1151,7 @@ function adminApp() {
 
     async deleteManageReward(id) {
       if (!confirm('确定删除此奖励？')) return;
-      await fetch('/api/admin/groups/' + this.manageGroupId + '/rewards/' + id, { method: 'DELETE', headers: { 'Authorization': 'Bearer ' + this.token } });
+      await fetch('/api/admin/groups/' + this.activeGroupId + '/rewards/' + id, { method: 'DELETE', headers: { 'Authorization': 'Bearer ' + this.token } });
       this.loadManageData();
       this.showToast('奖励已删除');
     },
