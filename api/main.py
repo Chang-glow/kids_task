@@ -35,19 +35,19 @@ app.include_router(admin_router)
 app.include_router(loan_router)
 
 # 静态文件（开发环境）
-static_dir = os.path.join(os.path.dirname(__file__), "..", "static")
-if os.path.isdir(static_dir):
+root_dir = os.path.join(os.path.dirname(__file__), "..")
+if os.path.isfile(os.path.join(root_dir, "index.html")):
     @app.get("/")
     def serve_frontend():
-        return FileResponse(os.path.join(static_dir, "index.html"))
+        return FileResponse(os.path.join(root_dir, "index.html"))
 
     @app.get("/admin")
     def serve_admin():
-        return FileResponse(os.path.join(os.path.dirname(__file__), "..", "admin.html"))
+        return FileResponse(os.path.join(root_dir, "admin.html"))
 
     @app.get("/{full_path:path}")
     def serve_spa(full_path: str):  # noqa: ARG001
-        return FileResponse(os.path.join(static_dir, "index.html"))
+        return FileResponse(os.path.join(root_dir, "index.html"))
 
 
 try:
