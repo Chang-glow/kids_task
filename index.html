@@ -878,13 +878,27 @@ input:focus, select:focus {
               <template x-if="todaysConditions.length > 0">
                 <template x-for="c in todaysConditions" :key="c.id">
                   <div class="condition-item" :class="{ accepted: c.accepted }">
-                    <span x-text="c.accepted ? '✅' : '📋'"></span>
+                    <span x-text="c.condition_type === 'streak' ? '🔥' : (c.condition_type && c.condition_type.startsWith('task_set') ? '🎯' : (c.accepted ? '✅' : '📋'))"></span>
                     <div style="flex:1;min-width:0;">
                       <span x-text="c.name"></span>
                       <span class="cond-tasks" x-text="'绑定: ' + (c.task_names || []).join('、')"></span>
+                      <!-- streak progress -->
+                      <div x-show="c.condition_type === 'streak' && c.streak_progress"
+                           style="font-size:0.75rem;color:#6b7280;margin-top:2px;">
+                        <span x-text="'进度: ' + (c.streak_progress.streak_count || 0) + '/' + (c.streak_days || '?') + ' 天'"></span>
+                        <span x-show="c.streak_progress.status === 'completed'" style="color:#27ae60;"> ✅ 已达成</span>
+                        <span x-show="c.streak_progress.status === 'failed'" style="color:#e74c3c;"> ❌ 已中断</span>
+                      </div>
+                      <!-- taskset progress -->
+                      <div x-show="c.condition_type && c.condition_type.startsWith('task_set') && c.taskset_progress"
+                           style="font-size:0.75rem;color:#6b7280;margin-top:2px;">
+                        <span x-text="'进度: ' + (c.taskset_progress.completed_tasks ? c.taskset_progress.completed_tasks.length : 0) + ' 个已完成'"></span>
+                        <span x-show="c.taskset_progress.status === 'completed'" style="color:#27ae60;"> ✅ 已达成</span>
+                      </div>
                     </div>
                     <span class="cond-reward" x-text="conditionRewardText(c)"></span>
-                    <button x-show="!c.accepted" class="btn btn-sm btn-primary"
+                    <button x-show="!c.accepted && (!c.condition_type || c.condition_type === 'acceptance')"
+                            class="btn btn-sm btn-primary"
                             @click="acceptCondition(c)" style="flex-shrink:0;">接受</button>
                   </div>
                 </template>
@@ -1435,9 +1449,10 @@ function app() {
       this.modalCalcBreakdown = '';
       this.conditionResults = [];
 
-      // 找出该任务已接受的条件（用 task_id 精确匹配）
+      // 找出该任务已接受的条件（仅 acceptance 类型需要弹窗自评；streak/task_set 自动追踪）
       const taskConds = this.todaysConditions.filter(
         c => c.accepted && (c.task_ids || []).includes(task.id)
+          && (!c.condition_type || c.condition_type === 'acceptance')
       );
       if (taskConds.length > 0) {
         this.conditionQueue = taskConds;
@@ -1472,6 +1487,12 @@ function app() {
 
     conditionRewardText(c) {
       if (!c) return '';
+      if (c.condition_type === 'streak') {
+        return '连' + (c.streak_days || '?') + '天 +' + (c.bonus_value || 10) + '分';
+      }
+      if (c.condition_type && c.condition_type.startsWith('task_set')) {
+        return '集齐 +' + (c.bonus_value || 10) + '分';
+      }
       const parts = [];
       if (c.bonus_value) parts.push('±' + c.bonus_value + '分');
       if (c.multiplier_value) parts.push('×' + c.multiplier_value);

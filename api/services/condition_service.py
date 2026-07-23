@@ -49,6 +49,8 @@ def ensure_daily_conditions(cur, group_id: int, today: date, count: int = 4) -> 
         conds = select_daily_conditions(cur, group_id, count)
         if conds:
             save_daily_conditions(cur, group_id, today, conds)
+    # 自动延续活跃的 streak 条件
+    carry_over_active_streaks(cur, group_id, today)
 
 
 def get_task_conditions(cur, task_id: int, group_id: int, today: date) -> list[dict]:
@@ -169,3 +171,216 @@ def delete_condition(cur, condition_id: int, group_id: int) -> dict:
         (condition_id, group_id),
     )
     return {"success": True}
+
+
+# ---- Streak（连续打卡）----
+
+def check_streak_on_complete(cur, child_id: int, group_id: int, task_id: int, today: date, now) -> list[dict]:
+    """任务完成时检查连续打卡条件。返回 [{type, condition_name, ...}]。"""
+    from datetime import timedelta
+
+    cur.execute(
+        """SELECT c.id, c.name, c.bonus_value, c.streak_days
+           FROM conditions c
+           JOIN condition_task_bindings ctb ON c.id = ctb.condition_id
+           JOIN daily_condition_selections dcs ON c.id = dcs.condition_id
+           WHERE c.condition_type = 'streak'
+             AND c.group_id = %s AND ctb.task_id = %s
+             AND dcs.selection_date = %s AND dcs.group_id = %s""",
+        (group_id, task_id, today, group_id),
+    )
+    streaks = [dict(r) for r in cur.fetchall()]
+    if not streaks:
+        return []
+
+    results = []
+    yesterday = today - timedelta(days=1)
+
+    for s in streaks:
+        # ensure progress row exists
+        cur.execute(
+            """INSERT INTO condition_streak_progress (child_id, group_id, condition_id)
+               VALUES (%s, %s, %s) ON CONFLICT (child_id, condition_id) DO NOTHING""",
+            (child_id, group_id, s["id"]),
+        )
+        cur.execute(
+            "SELECT * FROM condition_streak_progress WHERE child_id = %s AND condition_id = %s",
+            (child_id, s["id"]),
+        )
+        prog = cur.fetchone()
+
+        if prog["status"] != "active":
+            continue
+
+        if prog["last_completed_date"] == today:
+            continue  # 今天已经计过
+
+        bonus_value = s["bonus_value"] or 10
+        streak_days = s["streak_days"] or 3
+
+        if prog["last_completed_date"] == yesterday:
+            new_count = prog["streak_count"] + 1
+        elif prog["streak_count"] == 0:
+            new_count = 1  # 首次
+        else:
+            # 中断 → 扣分
+            penalty = min(bonus_value, _get_child_points(cur, child_id))
+            if penalty > 0:
+                cur.execute(
+                    "UPDATE children SET total_points = GREATEST(0, total_points - %s) WHERE id = %s",
+                    (penalty, child_id),
+                )
+                _insert_point_log(cur, "punish", penalty,
+                                  f"⚠️ 连续打卡中断「{s['name']}」→ -{penalty}分",
+                                  group_id, child_id, now)
+            cur.execute(
+                "UPDATE condition_streak_progress SET status = 'failed', updated_at = %s WHERE id = %s",
+                (now, prog["id"]),
+            )
+            results.append({"type": "streak_failed", "condition_name": s["name"], "penalty": penalty})
+            continue
+
+        if new_count >= streak_days:
+            # 达成
+            cur.execute("UPDATE children SET total_points = total_points + %s WHERE id = %s",
+                        (bonus_value, child_id))
+            _insert_point_log(cur, "earn", bonus_value,
+                              f"🔥 连续打卡达成「{s['name']}」{streak_days}天 → +{bonus_value}分",
+                              group_id, child_id, now)
+            cur.execute(
+                "UPDATE condition_streak_progress SET status = 'completed', streak_count = %s,"
+                " last_completed_date = %s, updated_at = %s WHERE id = %s",
+                (new_count, today, now, prog["id"]),
+            )
+            results.append({"type": "streak_completed", "condition_name": s["name"],
+                            "bonus": bonus_value, "days": new_count})
+        else:
+            # 继续
+            cur.execute(
+                "UPDATE condition_streak_progress SET streak_count = %s,"
+                " last_completed_date = %s, updated_at = %s WHERE id = %s",
+                (new_count, today, now, prog["id"]),
+            )
+            results.append({"type": "streak_progress", "condition_name": s["name"],
+                            "current": new_count, "target": streak_days})
+
+    return results
+
+
+# ---- Task Set（任务集合）----
+
+def check_taskset_on_complete(cur, child_id: int, group_id: int, task_id: int, today: date, now) -> list[dict]:
+    """任务完成时检查任务集合条件。返回 [{type, condition_name, ...}]。"""
+    cur.execute(
+        """SELECT c.id, c.name, c.bonus_value, c.condition_type, c.subset_size,
+                  array_agg(ctb.task_id) AS all_task_ids
+           FROM conditions c
+           JOIN condition_task_bindings ctb ON c.id = ctb.condition_id
+           JOIN daily_condition_selections dcs ON c.id = dcs.condition_id
+           WHERE c.condition_type IN ('task_set_specific', 'task_set_random')
+             AND c.group_id = %s AND dcs.selection_date = %s AND dcs.group_id = %s
+           GROUP BY c.id""",
+        (group_id, today, group_id),
+    )
+    all_sets = [dict(r) for r in cur.fetchall()]
+    # filter to those that include this task
+    matching = [ts for ts in all_sets if task_id in ts["all_task_ids"]]
+    if not matching:
+        return []
+
+    import json as _json
+
+    results = []
+    for ts in matching:
+        # ensure progress row
+        cur.execute(
+            """INSERT INTO condition_task_set_progress (child_id, group_id, condition_id, selection_date)
+               VALUES (%s, %s, %s, %s) ON CONFLICT (child_id, condition_id, selection_date) DO NOTHING""",
+            (child_id, group_id, ts["id"], today),
+        )
+        cur.execute(
+            "SELECT * FROM condition_task_set_progress"
+            " WHERE child_id = %s AND condition_id = %s AND selection_date = %s",
+            (child_id, ts["id"], today),
+        )
+        prog = cur.fetchone()
+        if prog["status"] != "active":
+            continue
+
+        # determine required tasks
+        if ts["condition_type"] == "task_set_random":
+            selected = _json.loads(prog["selected_tasks"]) if isinstance(prog["selected_tasks"], str) else (prog["selected_tasks"] or [])
+            if not selected:
+                # generate random subset for the day
+                pool = ts["all_task_ids"]
+                size = min(ts["subset_size"] or 3, len(pool))
+                import random as _random
+                selected = _random.sample(pool, size)
+                cur.execute(
+                    "UPDATE condition_task_set_progress SET selected_tasks = %s WHERE id = %s",
+                    (_json.dumps(selected), prog["id"]),
+                )
+            required = set(selected)
+        else:
+            required = set(ts["all_task_ids"])
+
+        # add current task
+        completed = set(prog["completed_tasks"] if isinstance(prog["completed_tasks"], list) else [])
+        completed.add(task_id)
+
+        if required.issubset(completed):
+            # 全部完成
+            bonus_value = ts["bonus_value"] or 10
+            cur.execute("UPDATE children SET total_points = total_points + %s WHERE id = %s",
+                        (bonus_value, child_id))
+            _insert_point_log(cur, "earn", bonus_value,
+                              f"🎯 任务集合达成「{ts['name']}」→ +{bonus_value}分",
+                              group_id, child_id, now)
+            cur.execute(
+                """UPDATE condition_task_set_progress SET completed_tasks = %s,
+                   status = 'completed', completed_at = %s WHERE id = %s""",
+                (_json.dumps(list(completed)), now, prog["id"]),
+            )
+            results.append({"type": "taskset_completed", "condition_name": ts["name"],
+                            "bonus": bonus_value})
+        else:
+            cur.execute(
+                "UPDATE condition_task_set_progress SET completed_tasks = %s WHERE id = %s",
+                (_json.dumps(list(completed)), prog["id"]),
+            )
+            remaining = required - completed
+            results.append({"type": "taskset_progress", "condition_name": ts["name"],
+                            "done": len(completed & required), "total": len(required),
+                            "remaining_task_ids": list(remaining)})
+
+    return results
+
+
+# ---- Helpers ----
+
+def _get_child_points(cur, child_id: int) -> int:
+    cur.execute("SELECT total_points FROM children WHERE id = %s", (child_id,))
+    row = cur.fetchone()
+    return row["total_points"] if row else 0
+
+
+def _insert_point_log(cur, action: str, amount: int, description: str, group_id: int, child_id: int, now):
+    cur.execute(
+        "INSERT INTO point_logs (action, amount, description, created_at, group_id, child_id)"
+        " VALUES (%s, %s, %s, %s, %s, %s)",
+        (action, amount, description, now, group_id, child_id),
+    )
+
+
+# ---- Streak 自动延续 ----
+
+def carry_over_active_streaks(cur, group_id: int, today: date) -> None:
+    """把还在 active 状态的 streak 条件自动加入今日 daily_condition_selections。"""
+    cur.execute(
+        """INSERT INTO daily_condition_selections (group_id, condition_id, selection_date)
+           SELECT DISTINCT sp.group_id, sp.condition_id, %s
+           FROM condition_streak_progress sp
+           WHERE sp.group_id = %s AND sp.status = 'active'
+           ON CONFLICT (group_id, condition_id, selection_date) DO NOTHING""",
+        (today, group_id),
+    )

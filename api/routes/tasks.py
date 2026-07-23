@@ -12,6 +12,7 @@ from api.services.boost_service import get_todays_boosts, ensure_daily_boosts
 from api.services.condition_service import (
     ensure_daily_conditions, get_task_conditions,
     accept_condition, calculate_condition_result,
+    check_streak_on_complete, check_taskset_on_complete,
 )
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
@@ -168,6 +169,16 @@ def complete_task(req: CompleteTaskRequest, group_id: int = Depends(get_group_id
              json.dumps(undo_data), now),
         )
 
+        # 连续打卡 & 任务集合检测
+        effective_child = task["child_id"]
+        if not effective_child:
+            cur.execute("SELECT MIN(id) FROM children WHERE group_id = %s", (group_id,))
+            child_row = cur.fetchone()
+            effective_child = child_row["min"] if child_row else None
+        if effective_child:
+            streak_results = check_streak_on_complete(cur, effective_child, group_id, req.task_id, today, now)
+            taskset_results = check_taskset_on_complete(cur, effective_child, group_id, req.task_id, today, now)
+
         cur.execute("UPDATE users SET total_points = total_points + %s WHERE id = 1", (final_points,))
 
         conn.commit()
@@ -230,8 +241,14 @@ def get_todays_conditions(group_id: int = Depends(get_group_id)):
     cur = conn.cursor()
     today = now_cst().date()
     ensure_daily_conditions(cur, group_id, today)
+    # 获取孩子 ID（第一个孩子）
+    cur.execute("SELECT MIN(id) FROM children WHERE group_id = %s", (group_id,))
+    child_row = cur.fetchone()
+    child_id = child_row["min"] if child_row else None
+
     cur.execute(
         """SELECT c.id, c.name, c.reward_type, c.bonus_value, c.multiplier_value,
+                  c.condition_type, c.streak_days, c.subset_size,
                   array_agg(DISTINCT t.name ORDER BY t.name) AS task_names,
                   array_agg(DISTINCT ctb.task_id) AS task_ids,
                   bool_or(cca.accepted) AS accepted
@@ -242,10 +259,13 @@ def get_todays_conditions(group_id: int = Depends(get_group_id)):
            LEFT JOIN child_condition_acceptances cca
              ON c.id = cca.condition_id AND cca.group_id = %s AND cca.acceptance_date = %s
            WHERE dcs.group_id = %s AND dcs.selection_date = %s
-             AND EXISTS (
-               SELECT 1 FROM condition_task_bindings ctb2
-               JOIN tasks t2 ON ctb2.task_id = t2.id
-               WHERE ctb2.condition_id = c.id AND t2.status != 'done'
+             AND (
+               c.condition_type IN ('streak', 'task_set_specific', 'task_set_random')
+               OR EXISTS (
+                 SELECT 1 FROM condition_task_bindings ctb2
+                 JOIN tasks t2 ON ctb2.task_id = t2.id
+                 WHERE ctb2.condition_id = c.id AND t2.status != 'done'
+               )
              )
            GROUP BY c.id
            ORDER BY c.id""",
@@ -256,6 +276,31 @@ def get_todays_conditions(group_id: int = Depends(get_group_id)):
         d = dict(r)
         d["task_names"] = r["task_names"] if r["task_names"] != [None] else []
         d["task_ids"] = r["task_ids"] if r["task_ids"] != [None] else []
+        # streak 进度
+        if r["condition_type"] == "streak" and child_id:
+            cur.execute(
+                "SELECT streak_count, last_completed_date, status FROM condition_streak_progress"
+                " WHERE child_id = %s AND condition_id = %s",
+                (child_id, r["id"]),
+            )
+            sp = cur.fetchone()
+            d["streak_progress"] = dict(sp) if sp else None
+        # task_set 进度
+        if r["condition_type"] in ("task_set_specific", "task_set_random") and child_id:
+            cur.execute(
+                "SELECT completed_tasks, selected_tasks, status FROM condition_task_set_progress"
+                " WHERE child_id = %s AND condition_id = %s AND selection_date = %s",
+                (child_id, r["id"], today),
+            )
+            tp = cur.fetchone()
+            if tp:
+                d["taskset_progress"] = {
+                    "completed_tasks": tp["completed_tasks"] if isinstance(tp["completed_tasks"], list) else [],
+                    "selected_tasks": tp["selected_tasks"] if isinstance(tp["selected_tasks"], list) else [],
+                    "status": tp["status"],
+                }
+            else:
+                d["taskset_progress"] = None
         rows.append(d)
     conn.commit()
     conn.close()

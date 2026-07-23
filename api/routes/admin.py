@@ -783,7 +783,8 @@ def admin_get_conditions(group_id: int, _token: str = Depends(_require_admin)):
     conn = get_db()
     cur = conn.cursor()
     cur.execute(
-        "SELECT c.*,"
+        "SELECT c.id, c.group_id, c.name, c.reward_type, c.bonus_value, c.multiplier_value,"
+        " c.condition_type, c.streak_days, c.subset_size, c.created_at,"
         " array_agg(t.name ORDER BY t.name) FILTER (WHERE t.name IS NOT NULL) AS task_names,"
         " array_agg(ctb.task_id) FILTER (WHERE ctb.task_id IS NOT NULL) AS task_ids"
         " FROM conditions c"
@@ -810,14 +811,27 @@ def admin_create_condition(req: dict, _token: str = Depends(_require_admin)):
     group_id = req.get("group_id")
     name = req.get("name", "").strip()
     reward_type = req.get("reward_type", "")
+    condition_type = req.get("condition_type", "acceptance")
     bonus_value = req.get("bonus_value")
     multiplier_value = req.get("multiplier_value")
+    streak_days = req.get("streak_days")
+    subset_size = req.get("subset_size")
     task_ids = req.get("task_ids", [])
 
     if not group_id:
         raise HTTPException(status_code=400, detail="缺少 group_id")
     if not name:
         raise HTTPException(status_code=400, detail="条件名称不能为空")
+    if condition_type not in ("acceptance", "streak", "task_set_specific", "task_set_random"):
+        raise HTTPException(status_code=400, detail="condition_type 无效")
+    if condition_type == "streak":
+        sd = int(streak_days or 0)
+        if sd < 2 or sd > 30:
+            raise HTTPException(status_code=400, detail="streak_days 需为 2-30")
+    if condition_type == "task_set_random":
+        ss = int(subset_size or 0)
+        if ss < 2 or ss > len(task_ids):
+            raise HTTPException(status_code=400, detail="subset_size 需为 2 ~ 绑定任务数")
     if reward_type not in ("bonus_points", "multiplier", "both"):
         raise HTTPException(status_code=400, detail="reward_type 无效")
     if reward_type in ("bonus_points", "both"):
@@ -832,10 +846,24 @@ def admin_create_condition(req: dict, _token: str = Depends(_require_admin)):
     conn = get_db()
     cur = conn.cursor()
     try:
-        result = create_condition(cur, group_id, name, reward_type,
-                                  int(bonus_value) if bonus_value else None,
-                                  float(multiplier_value) if multiplier_value else None,
-                                  task_ids, now_cst())
+        now = now_cst()
+        cur.execute(
+            "INSERT INTO conditions (group_id, name, reward_type, condition_type,"
+            " bonus_value, multiplier_value, streak_days, subset_size, created_at)"
+            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+            (group_id, name, reward_type, condition_type,
+             int(bonus_value) if bonus_value else None,
+             float(multiplier_value) if multiplier_value else None,
+             int(streak_days) if streak_days else None,
+             int(subset_size) if subset_size else None,
+             now),
+        )
+        cond_id = cur.fetchone()["id"]
+        for tid in task_ids:
+            cur.execute(
+                "INSERT INTO condition_task_bindings (condition_id, task_id) VALUES (%s, %s)"
+                " ON CONFLICT DO NOTHING", (cond_id, int(tid)),
+            )
         # 清除当日条件缓存，强制重新选取，使新条件立即可见
         today = now_cst().date()
         cur.execute(
@@ -843,7 +871,7 @@ def admin_create_condition(req: dict, _token: str = Depends(_require_admin)):
             (group_id, today),
         )
         conn.commit()
-        return result
+        return {"success": True, "condition_id": cond_id}
     except Exception:
         conn.rollback()
         traceback.print_exc()
@@ -865,12 +893,17 @@ def admin_update_condition(condition_id: int, req: dict, _token: str = Depends(_
 
     name = req.get("name", "").strip()
     reward_type = req.get("reward_type", "")
+    condition_type = req.get("condition_type", row.get("condition_type", "acceptance"))
     bonus_value = req.get("bonus_value")
     multiplier_value = req.get("multiplier_value")
+    streak_days = req.get("streak_days")
+    subset_size = req.get("subset_size")
     task_ids = req.get("task_ids", [])
 
     if not name:
         raise HTTPException(status_code=400, detail="条件名称不能为空")
+    if condition_type not in ("acceptance", "streak", "task_set_specific", "task_set_random"):
+        raise HTTPException(status_code=400, detail="condition_type 无效")
     if reward_type not in ("bonus_points", "multiplier", "both"):
         raise HTTPException(status_code=400, detail="reward_type 无效")
     if reward_type in ("bonus_points", "both"):
@@ -885,11 +918,14 @@ def admin_update_condition(condition_id: int, req: dict, _token: str = Depends(_
     group_id = row["group_id"]
     try:
         cur.execute(
-            "UPDATE conditions SET name = %s, reward_type = %s, bonus_value = %s,"
-            " multiplier_value = %s WHERE id = %s",
-            (name, reward_type,
+            "UPDATE conditions SET name = %s, reward_type = %s, condition_type = %s,"
+            " bonus_value = %s, multiplier_value = %s,"
+            " streak_days = %s, subset_size = %s WHERE id = %s",
+            (name, reward_type, condition_type,
              int(bonus_value) if bonus_value else None,
              float(multiplier_value) if multiplier_value else None,
+             int(streak_days) if streak_days else None,
+             int(subset_size) if subset_size else None,
              condition_id),
         )
         # 重新绑定任务：先删旧绑定，再插新绑定

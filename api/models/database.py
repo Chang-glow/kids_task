@@ -190,6 +190,9 @@ def init_db():
             created_at TIMESTAMP NOT NULL DEFAULT NOW()
         )
     """)
+    cur.execute("ALTER TABLE conditions ADD COLUMN IF NOT EXISTS condition_type TEXT DEFAULT 'acceptance'")
+    cur.execute("ALTER TABLE conditions ADD COLUMN IF NOT EXISTS streak_days INTEGER")
+    cur.execute("ALTER TABLE conditions ADD COLUMN IF NOT EXISTS subset_size INTEGER")
 
     # ---- 条件-任务绑定（多对多）----
     cur.execute("""
@@ -226,6 +229,40 @@ def init_db():
             acceptance_date DATE NOT NULL,
             completed_at TIMESTAMP,
             created_at TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+    """)
+    cur.execute("ALTER TABLE child_condition_acceptances ADD COLUMN IF NOT EXISTS penalty_applied BOOLEAN DEFAULT false")
+
+    # ---- 连续打卡进度 ----
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS condition_streak_progress (
+            id SERIAL PRIMARY KEY,
+            child_id INTEGER REFERENCES children(id) ON DELETE CASCADE,
+            group_id INTEGER REFERENCES family_groups(id),
+            condition_id INTEGER REFERENCES conditions(id) ON DELETE CASCADE,
+            streak_count INTEGER NOT NULL DEFAULT 0,
+            last_completed_date DATE,
+            status TEXT NOT NULL DEFAULT 'active',
+            created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+            UNIQUE(child_id, condition_id)
+        )
+    """)
+
+    # ---- 任务集合每日进度 ----
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS condition_task_set_progress (
+            id SERIAL PRIMARY KEY,
+            child_id INTEGER REFERENCES children(id) ON DELETE CASCADE,
+            group_id INTEGER REFERENCES family_groups(id),
+            condition_id INTEGER REFERENCES conditions(id) ON DELETE CASCADE,
+            selection_date DATE NOT NULL,
+            selected_tasks JSONB DEFAULT '[]',
+            completed_tasks JSONB DEFAULT '[]',
+            status TEXT NOT NULL DEFAULT 'active',
+            completed_at TIMESTAMP,
+            created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+            UNIQUE(child_id, condition_id, selection_date)
         )
     """)
 

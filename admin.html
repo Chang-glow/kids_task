@@ -451,7 +451,13 @@
               <h4 style="margin-bottom:10px;" x-text="editingConditionId ? '✏️ 编辑条件' : '创建新条件'"></h4>
               <div class="form-row" style="gap:8px;flex-wrap:wrap;">
                 <input type="text" x-model="condForm.name" placeholder="条件名称" style="flex:1;min-width:120px;">
-                <select x-model="condForm.reward_type" style="width:120px;">
+                <select x-model="condForm.condition_type" style="width:130px;">
+                  <option value="acceptance">接受挑战</option>
+                  <option value="streak">连续打卡</option>
+                  <option value="task_set_specific">任务集合(指定)</option>
+                  <option value="task_set_random">任务集合(随机)</option>
+                </select>
+                <select x-model="condForm.reward_type" style="width:80px;">
                   <option value="bonus_points">加分</option>
                   <option value="multiplier">倍率</option>
                   <option value="both">两者</option>
@@ -462,6 +468,12 @@
                 <input type="number" x-model="condForm.multiplier_value" placeholder="倍率"
                        x-show="condForm.reward_type === 'multiplier' || condForm.reward_type === 'both'"
                        step="0.25" min="1.25" max="5.0" style="width:80px;">
+                <input type="number" x-model="condForm.streak_days" placeholder="连续天数"
+                       x-show="condForm.condition_type === 'streak'"
+                       min="2" max="30" style="width:80px;">
+                <input type="number" x-model="condForm.subset_size" placeholder="每日抽取数"
+                       x-show="condForm.condition_type === 'task_set_random'"
+                       min="2" max="20" style="width:90px;">
               </div>
               <div style="margin:8px 0;">
                 <label style="font-size:0.85rem;color:#6b7280;">绑定任务（可多选）:</label>
@@ -482,11 +494,17 @@
                       @click="cancelEditCondition()">取消编辑</button>
             </div>
             <table class="stats-table" x-show="conditions.length > 0">
-              <thead><tr><th>名称</th><th>类型</th><th>奖励</th><th>绑定任务</th><th>操作</th></tr></thead>
+              <thead><tr><th>名称</th><th>模式</th><th>类型</th><th>奖励</th><th>绑定任务</th><th>操作</th></tr></thead>
               <tbody>
                 <template x-for="c in conditions" :key="c.id">
                   <tr>
                     <td x-text="c.name"></td>
+                    <td>
+                      <span x-show="c.condition_type === 'acceptance'" style="background:#d6eaf8;color:#2980b9;padding:2px 6px;border-radius:4px;font-size:11px;">挑战</span>
+                      <span x-show="c.condition_type === 'streak'" style="background:#d5f5e3;color:#27ae60;padding:2px 6px;border-radius:4px;font-size:11px;" x-text="'连续'+c.streak_days+'天'"></span>
+                      <span x-show="c.condition_type === 'task_set_specific'" style="background:#fdebd0;color:#e67e22;padding:2px 6px;border-radius:4px;font-size:11px;">任务集合</span>
+                      <span x-show="c.condition_type === 'task_set_random'" style="background:#fdebd0;color:#e67e22;padding:2px 6px;border-radius:4px;font-size:11px;" x-text="'随机'+c.subset_size+'选'"></span>
+                    </td>
                     <td x-text="c.reward_type"></td>
                     <td>
                       <span x-show="c.bonus_value" x-text="'±'+c.bonus_value+'分'"></span>
@@ -637,7 +655,7 @@ function adminApp() {
     condTasks: [],
     conditions: [],
     editingConditionId: null,
-    condForm: { name: '', reward_type: 'bonus_points', bonus_value: null, multiplier_value: null, task_ids: [] },
+    condForm: { name: '', condition_type: 'acceptance', reward_type: 'bonus_points', bonus_value: null, multiplier_value: null, streak_days: null, subset_size: null, task_ids: [] },
 
     // Manage tab
     manageTasks: [],
@@ -1090,9 +1108,12 @@ function adminApp() {
       this.editingConditionId = c.id;
       this.condForm = {
         name: c.name,
+        condition_type: c.condition_type || 'acceptance',
         reward_type: c.reward_type,
         bonus_value: c.bonus_value || null,
         multiplier_value: c.multiplier_value ? parseFloat(c.multiplier_value) : null,
+        streak_days: c.streak_days || null,
+        subset_size: c.subset_size || null,
         task_ids: c.task_ids || [],
       };
       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -1100,7 +1121,7 @@ function adminApp() {
 
     cancelEditCondition() {
       this.editingConditionId = null;
-      this.condForm = { name: '', reward_type: 'bonus_points', bonus_value: null, multiplier_value: null, task_ids: [] };
+      this.condForm = { name: '', condition_type: 'acceptance', reward_type: 'bonus_points', bonus_value: null, multiplier_value: null, streak_days: null, subset_size: null, task_ids: [] };
     },
 
     async saveCondition() {
@@ -1109,8 +1130,19 @@ function adminApp() {
       const body = {
         name: this.condForm.name.trim(),
         reward_type: this.condForm.reward_type,
+        condition_type: this.condForm.condition_type || 'acceptance',
         task_ids: this.condForm.task_ids.map(Number),
       };
+      if (this.condForm.condition_type === 'streak') {
+        const sd = parseInt(this.condForm.streak_days) || 0;
+        if (sd < 2 || sd > 30) return this.showToast('连续天数需为 2-30', 'error');
+        body.streak_days = sd;
+      }
+      if (this.condForm.condition_type === 'task_set_random') {
+        const ss = parseInt(this.condForm.subset_size) || 0;
+        if (ss < 2 || ss > this.condForm.task_ids.length) return this.showToast('抽取数需为 2 ~ 绑定任务数', 'error');
+        body.subset_size = ss;
+      }
       if (this.condForm.reward_type === 'bonus_points' || this.condForm.reward_type === 'both') {
         const bv = parseInt(this.condForm.bonus_value) || 0;
         if (bv < 5 || bv > 50 || bv % 5 !== 0) return this.showToast('加分需为 5-50，步长 5', 'error');
