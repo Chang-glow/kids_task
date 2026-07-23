@@ -783,7 +783,9 @@ def admin_get_conditions(group_id: int, _token: str = Depends(_require_admin)):
     conn = get_db()
     cur = conn.cursor()
     cur.execute(
-        "SELECT c.*, array_agg(t.name ORDER BY t.name) AS task_names"
+        "SELECT c.*,"
+        " array_agg(t.name ORDER BY t.name) FILTER (WHERE t.name IS NOT NULL) AS task_names,"
+        " array_agg(ctb.task_id) FILTER (WHERE ctb.task_id IS NOT NULL) AS task_ids"
         " FROM conditions c"
         " LEFT JOIN condition_task_bindings ctb ON c.id = ctb.condition_id"
         " LEFT JOIN tasks t ON ctb.task_id = t.id"
@@ -795,6 +797,7 @@ def admin_get_conditions(group_id: int, _token: str = Depends(_require_admin)):
     for r in cur.fetchall():
         d = dict(r)
         d["task_names"] = r["task_names"] if r["task_names"] != [None] else []
+        d["task_ids"] = [int(x) for x in r["task_ids"]] if r["task_ids"] != [None] else []
         rows.append(d)
     conn.close()
     return rows
@@ -841,6 +844,73 @@ def admin_create_condition(req: dict, _token: str = Depends(_require_admin)):
         )
         conn.commit()
         return result
+    except Exception:
+        conn.rollback()
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail="服务器内部错误")
+    finally:
+        conn.close()
+
+
+@router.put("/conditions/{condition_id}")
+def admin_update_condition(condition_id: int, req: dict, _token: str = Depends(_require_admin)):
+    """编辑已有条件：名称、类型、奖励值、绑定任务。"""
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM conditions WHERE id = %s", (condition_id,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="条件不存在")
+
+    name = req.get("name", "").strip()
+    reward_type = req.get("reward_type", "")
+    bonus_value = req.get("bonus_value")
+    multiplier_value = req.get("multiplier_value")
+    task_ids = req.get("task_ids", [])
+
+    if not name:
+        raise HTTPException(status_code=400, detail="条件名称不能为空")
+    if reward_type not in ("bonus_points", "multiplier", "both"):
+        raise HTTPException(status_code=400, detail="reward_type 无效")
+    if reward_type in ("bonus_points", "both"):
+        bv = int(bonus_value or 0)
+        if bv < 5 or bv > 50 or bv % 5 != 0:
+            raise HTTPException(status_code=400, detail="bonus_value 需为 5-50，步长 5")
+    if reward_type in ("multiplier", "both"):
+        mv = float(multiplier_value or 0)
+        if mv < 1.25 or mv > 5.0:
+            raise HTTPException(status_code=400, detail="multiplier_value 需为 1.25-5.0，步长 0.25")
+
+    group_id = row["group_id"]
+    try:
+        cur.execute(
+            "UPDATE conditions SET name = %s, reward_type = %s, bonus_value = %s,"
+            " multiplier_value = %s WHERE id = %s",
+            (name, reward_type,
+             int(bonus_value) if bonus_value else None,
+             float(multiplier_value) if multiplier_value else None,
+             condition_id),
+        )
+        # 重新绑定任务：先删旧绑定，再插新绑定
+        cur.execute("DELETE FROM condition_task_bindings WHERE condition_id = %s", (condition_id,))
+        for tid in task_ids:
+            cur.execute(
+                "INSERT INTO condition_task_bindings (condition_id, task_id) VALUES (%s, %s)"
+                " ON CONFLICT DO NOTHING",
+                (condition_id, int(tid)),
+            )
+        # 清除当日条件缓存
+        today = now_cst().date()
+        cur.execute(
+            "DELETE FROM daily_condition_selections WHERE group_id = %s AND selection_date = %s",
+            (group_id, today),
+        )
+        conn.commit()
+        return {"success": True}
+    except HTTPException:
+        conn.rollback()
+        raise
     except Exception:
         conn.rollback()
         traceback.print_exc()

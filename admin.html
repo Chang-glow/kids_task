@@ -40,6 +40,12 @@
   .card h3 { font-size: 16px; margin-bottom: 12px; }
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 16px; }
 
+  /* Tables */
+  .stats-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .stats-table th { text-align: left; padding: 8px 12px; background: var(--bg); color: var(--muted); font-weight: 600; border-radius: 6px 6px 0 0; }
+  .stats-table td { padding: 10px 12px; border-bottom: 1px solid #eee; }
+  .stats-table tr:hover td { background: #f8fafc; }
+
   /* Children list */
   .child-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: var(--bg); border-radius: 8px; margin-bottom: 8px; }
   .child-row .points { font-weight: 700; font-size: 18px; color: var(--c1); }
@@ -442,7 +448,7 @@
         <template x-if="activeGroupId">
           <div>
             <div style="padding:14px;background:#f8fafc;border-radius:12px;margin-bottom:14px;">
-              <h4 style="margin-bottom:10px;">创建新条件</h4>
+              <h4 style="margin-bottom:10px;" x-text="editingConditionId ? '✏️ 编辑条件' : '创建新条件'"></h4>
               <div class="form-row" style="gap:8px;flex-wrap:wrap;">
                 <input type="text" x-model="condForm.name" placeholder="条件名称" style="flex:1;min-width:120px;">
                 <select x-model="condForm.reward_type" style="width:120px;">
@@ -470,7 +476,10 @@
                   </template>
                 </div>
               </div>
-              <button class="btn btn-primary btn-sm" @click="createCondition()">创建条件</button>
+              <button class="btn btn-primary btn-sm" @click="saveCondition()"
+                      x-text="editingConditionId ? '更新条件' : '创建条件'"></button>
+              <button class="btn btn-sm" style="background:#e5e7eb;margin-left:6px;" x-show="editingConditionId"
+                      @click="cancelEditCondition()">取消编辑</button>
             </div>
             <table class="stats-table" x-show="conditions.length > 0">
               <thead><tr><th>名称</th><th>类型</th><th>奖励</th><th>绑定任务</th><th>操作</th></tr></thead>
@@ -484,7 +493,10 @@
                       <span x-show="c.multiplier_value" x-text="' ×'+c.multiplier_value"></span>
                     </td>
                     <td x-text="(c.task_names || []).join(', ')"></td>
-                    <td><button class="btn btn-sm btn-danger" @click="deleteCondition(c.id)">删除</button></td>
+                    <td>
+                      <button class="btn btn-sm btn-outline" style="margin-right:4px;" @click="editCondition(c)">编辑</button>
+                      <button class="btn btn-sm btn-danger" @click="deleteCondition(c.id)">删除</button>
+                    </td>
                   </tr>
                 </template>
               </tbody>
@@ -624,6 +636,7 @@ function adminApp() {
     // Conditions tab
     condTasks: [],
     conditions: [],
+    editingConditionId: null,
     condForm: { name: '', reward_type: 'bonus_points', bonus_value: null, multiplier_value: null, task_ids: [] },
 
     // Manage tab
@@ -1019,13 +1032,18 @@ function adminApp() {
     // === Boost Overrides ===
     async loadBoostOverrides() {
       if (!this.activeGroupId) return;
-      const headers = { 'Authorization': 'Bearer ' + this.token };
-      const [r1, r2] = await Promise.all([
-        fetch('/api/admin/boost-overrides?group_id=' + this.activeGroupId, { headers }),
-        fetch('/api/admin/tasks?group_id=' + this.activeGroupId, { headers }),
-      ]);
-      this.boostOverrides = await r1.json();
-      this.boostTasks = await r2.json();
+      try {
+        const headers = { 'Authorization': 'Bearer ' + this.token };
+        const [r1, r2] = await Promise.all([
+          fetch('/api/admin/boost-overrides?group_id=' + this.activeGroupId, { headers }),
+          fetch('/api/admin/tasks?group_id=' + this.activeGroupId, { headers }),
+        ]);
+        if (!r1.ok || !r2.ok) throw new Error('加载失败');
+        this.boostOverrides = await r1.json();
+        this.boostTasks = await r2.json();
+      } catch (e) {
+        this.showToast('翻倍数据加载失败，请刷新重试', 'error');
+      }
     },
 
     async saveBoostOverride() {
@@ -1053,20 +1071,41 @@ function adminApp() {
     // === Conditions ===
     async loadConditions() {
       if (!this.activeGroupId) return;
-      const headers = { 'Authorization': 'Bearer ' + this.token };
-      const [r1, r2] = await Promise.all([
-        fetch('/api/admin/conditions?group_id=' + this.activeGroupId, { headers }),
-        fetch('/api/admin/tasks?group_id=' + this.activeGroupId, { headers }),
-      ]);
-      this.conditions = await r1.json();
-      this.condTasks = await r2.json();
+      try {
+        const headers = { 'Authorization': 'Bearer ' + this.token };
+        const [r1, r2] = await Promise.all([
+          fetch('/api/admin/conditions?group_id=' + this.activeGroupId, { headers }),
+          fetch('/api/admin/tasks?group_id=' + this.activeGroupId, { headers }),
+        ]);
+        if (!r1.ok || !r2.ok) throw new Error('加载失败');
+        this.conditions = await r1.json();
+        this.condTasks = await r2.json();
+      } catch (e) {
+        this.showToast('条件数据加载失败，请刷新重试', 'error');
+      }
     },
 
-    async createCondition() {
+    editCondition(c) {
+      this.editingConditionId = c.id;
+      this.condForm = {
+        name: c.name,
+        reward_type: c.reward_type,
+        bonus_value: c.bonus_value || null,
+        multiplier_value: c.multiplier_value ? parseFloat(c.multiplier_value) : null,
+        task_ids: c.task_ids || [],
+      };
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    },
+
+    cancelEditCondition() {
+      this.editingConditionId = null;
+      this.condForm = { name: '', reward_type: 'bonus_points', bonus_value: null, multiplier_value: null, task_ids: [] };
+    },
+
+    async saveCondition() {
       if (!this.condForm.name.trim()) return this.showToast('请输入条件名称', 'error');
       if (!this.condForm.task_ids.length) return this.showToast('请绑定至少一个任务', 'error');
       const body = {
-        group_id: parseInt(this.activeGroupId),
         name: this.condForm.name.trim(),
         reward_type: this.condForm.reward_type,
         task_ids: this.condForm.task_ids.map(Number),
@@ -1077,16 +1116,20 @@ function adminApp() {
       if (this.condForm.reward_type === 'multiplier' || this.condForm.reward_type === 'both') {
         body.multiplier_value = parseFloat(this.condForm.multiplier_value);
       }
-      const resp = await fetch('/api/admin/conditions', {
-        method: 'POST',
+      const isEdit = !!this.editingConditionId;
+      const url = isEdit ? '/api/admin/conditions/' + this.editingConditionId : '/api/admin/conditions';
+      const method = isEdit ? 'PUT' : 'POST';
+      if (!isEdit) body.group_id = parseInt(this.activeGroupId);
+      const resp = await fetch(url, {
+        method,
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + this.token },
         body: JSON.stringify(body),
       });
       const data = await resp.json();
-      if (!resp.ok) { this.showToast(data.detail || '创建失败', 'error'); return; }
-      this.condForm = { name: '', reward_type: 'bonus_points', bonus_value: null, multiplier_value: null, task_ids: [] };
+      if (!resp.ok) { this.showToast(data.detail || '保存失败', 'error'); return; }
+      this.cancelEditCondition();
       this.loadConditions();
-      this.showToast('条件已创建');
+      this.showToast(isEdit ? '条件已更新' : '条件已创建');
     },
 
     async deleteCondition(id) {
@@ -1099,13 +1142,18 @@ function adminApp() {
     // === Manage Tasks/Rewards ===
     async loadManageData() {
       if (!this.activeGroupId) return;
-      const headers = { 'Authorization': 'Bearer ' + this.token };
-      const [r1, r2] = await Promise.all([
-        fetch('/api/admin/tasks?group_id=' + this.activeGroupId, { headers }),
-        fetch('/api/admin/rewards?group_id=' + this.activeGroupId, { headers }),
-      ]);
-      this.manageTasks = await r1.json();
-      this.manageRewards = await r2.json();
+      try {
+        const headers = { 'Authorization': 'Bearer ' + this.token };
+        const [r1, r2] = await Promise.all([
+          fetch('/api/admin/tasks?group_id=' + this.activeGroupId, { headers }),
+          fetch('/api/admin/rewards?group_id=' + this.activeGroupId, { headers }),
+        ]);
+        if (!r1.ok || !r2.ok) throw new Error('加载失败');
+        this.manageTasks = await r1.json();
+        this.manageRewards = await r2.json();
+      } catch (e) {
+        this.showToast('任务/奖励数据加载失败，请刷新重试', 'error');
+      }
     },
 
     async addManageTask() {
