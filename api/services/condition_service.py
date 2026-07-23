@@ -35,7 +35,12 @@ def save_daily_conditions(cur, group_id: int, today: date, conditions: list[dict
 
 
 def ensure_daily_conditions(cur, group_id: int, today: date, count: int = 4) -> None:
-    """懒加载：检查今天是否已分配条件，未分配则生成。幂等。"""
+    """懒加载：检查今天是否已分配条件，未分配则生成。幂等。
+
+    使用 advisory lock 防止并发请求同时 SELECT COUNT(*) → 0 导致重复选取。
+    """
+    lock_id = (hash(f"daily_cond_{group_id}") & 0x7FFFFFFF)
+    cur.execute("SELECT pg_advisory_xact_lock(%s)", (lock_id,))
     cur.execute(
         "SELECT COUNT(*) FROM daily_condition_selections WHERE group_id = %s AND selection_date = %s",
         (group_id, today),
