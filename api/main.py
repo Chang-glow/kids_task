@@ -43,7 +43,7 @@ if os.path.isdir(static_dir):
 
     @app.get("/admin")
     def serve_admin():
-        return FileResponse(os.path.join(static_dir, "admin.html"))
+        return FileResponse(os.path.join(os.path.dirname(__file__), "..", "admin.html"))
 
     @app.get("/{full_path:path}")
     def serve_spa(full_path: str):  # noqa: ARG001
