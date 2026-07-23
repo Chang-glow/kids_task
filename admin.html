@@ -459,6 +459,8 @@
               </div>
               <div style="margin:8px 0;">
                 <label style="font-size:0.85rem;color:#6b7280;">绑定任务（可多选）:</label>
+                <button class="btn btn-sm" style="background:#e8e8e8;margin-left:8px;font-size:12px;" @click="condForm.task_ids = condTasks.map(t => t.id)">全选</button>
+                <button class="btn btn-sm" style="background:#e8e8e8;margin-left:4px;font-size:12px;" @click="condForm.task_ids = condTasks.filter(t => !condForm.task_ids.includes(t.id)).map(t => t.id)">反选</button>
                 <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;">
                   <template x-for="t in condTasks" :key="t.id">
                     <label style="font-size:0.82rem;font-weight:600;cursor:pointer;">
