@@ -11,7 +11,7 @@
 - **星级评级** — 完成任务后 1-5 星评价，积分按比例折算（50%-120%）
 - **惩罚冷静期** — 扣分有 10 分钟 / 1 小时 / 24 小时三档上限，避免情绪化操作
 - **限时翻倍** — 每日随机3个任务获得 1.5x-2.0x 倍率，连续中奖权重衰减，admin 可覆盖
-- **悬赏条件** — admin 预设加分/倍率条件，孩子主动接受后完成任务时弹窗判定，奖惩对称
+- **悬赏条件** — 三种类型：接受挑战（弹窗自评 pass/fail）、连续打卡（连续 N 天完成奖励/中断扣分）、任务集合（同一天完成指定/随机任务集奖励），每日随机 4 选
 - **撤回支持** — 所有操作可撤销，`undo_operations` 表记录完整上下文
 - **贷款系统** — 可借积分应急，日利率单利计息，按时还款积累信用分提升贷款额度
 
@@ -64,7 +64,7 @@ pytest tests/ -v
 │   │   └── schemas.py      # Pydantic 请求/响应模型
 │   ├── routes/
 │   │   ├── group.py        # 群组创建 / 查询（POST/GET /api/groups）
-│   │   ├── tasks.py        # 任务 CRUD + 完成评级
+│   │   ├── tasks.py        # 任务 CRUD + 完成评级 + 条件检测
 │   │   ├── rewards.py      # 奖励商城 CRUD + 兑换
 │   │   ├── children.py     # 孩子档案管理
 │   │   ├── logs.py         # 积分流水、惩罚扣分、统计
@@ -72,11 +72,10 @@ pytest tests/ -v
 │   └── services/
 │       ├── point_service.py     # 积分计算（星级 × 基础分 → 最终分）
 │       ├── boost_service.py     # 每日翻倍（权重抽样、衰减、覆盖）
-│       ├── condition_service.py # 悬赏条件（选择、奖惩计算）
+│       ├── condition_service.py # 悬赏条件（选取、奖惩、streak/task_set 检测）
 │       └── loan_service.py      # 贷款服务（利息、信用分）
-├── static/
-│   ├── index.html          # 主前端 SPA（Alpine.js，约 1400 行）
-│   └── admin.html          # Admin 管理后台
+├── index.html              # 主前端 SPA（Alpine.js）
+├── admin.html              # Admin 管理后台
 ├── tests/                  # pytest 测试（96 个测试）
 │   ├── conftest.py
 │   ├── test_smoke.py
@@ -109,10 +108,12 @@ pytest tests/ -v
 | `loans` | 贷款记录（本金、剩余本金、日利率、累计利息、状态） |
 | `daily_task_boosts` | 每日翻倍记录（任务 × 日期 × 倍率） |
 | `daily_boost_overrides` | 翻倍覆盖（lock_in / lock_out / manual） |
-| `conditions` | 悬赏条件定义（加分 / 倍率 / 两者） |
+| `conditions` | 悬赏条件定义（acceptance / streak / task_set_specific / task_set_random） |
 | `condition_task_bindings` | 条件 ↔ 任务多对多绑定 |
-| `daily_condition_selections` | 每日条件选取（群组 × 日期） |
-| `child_condition_acceptances` | 孩子接受条件记录 |
+| `daily_condition_selections` | 每日条件选取（群组 × 日期，advisory lock 防竞态） |
+| `child_condition_acceptances` | 孩子接受条件记录（acceptance 类型） |
+| `condition_streak_progress` | 连续打卡进度追踪（child × condition，跨天） |
+| `condition_task_set_progress` | 任务集合每日进度（child × condition × date） |
 | `admin_settings` | Admin 密码哈希、系统配置 |
 | `users` | 兼容旧版的单用户表（只读，不再写入） |
 
