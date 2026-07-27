@@ -774,11 +774,17 @@ input:focus, select:focus {
         <div class="points-icon">🏆</div>
       </div>
 
-      <!-- 日报表 -->
+      <!-- 统计中心 -->
       <div class="card" style="margin-bottom:20px;">
-        <div class="card-title" style="display:flex;align-items:center;justify-content:space-between;">
-          <span>📊 日报表</span>
-          <div style="display:flex;gap:6px;">
+        <div class="card-title" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+          <span>📊 统计中心</span>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            <div style="display:flex;gap:4px;">
+              <button class="stats-tab" :class="{ active: reportPeriod === 'day' }" @click="switchReportPeriod('day')">📅 日</button>
+              <button class="stats-tab" :class="{ active: reportPeriod === 'week' }" @click="switchReportPeriod('week')">📆 周</button>
+              <button class="stats-tab" :class="{ active: reportPeriod === 'month' }" @click="switchReportPeriod('month')">🗓️ 月</button>
+            </div>
+            <span style="color:#e2e8f0;margin:0 2px;">|</span>
             <button class="stats-tab" :class="{ active: reportView === 'table' }" @click="switchReportView('table')">📋 表格</button>
             <button class="stats-tab" :class="{ active: reportView === 'chart' }" @click="switchReportView('chart')">📈 图表</button>
           </div>
@@ -787,7 +793,8 @@ input:focus, select:focus {
         <!-- 表格视图 -->
         <div x-show="reportView === 'table'">
           <div class="stats-table-wrap">
-            <table class="stats-table">
+            <!-- 日视图表格：含任务/奖励计数 -->
+            <table class="stats-table" x-show="reportPeriod === 'day'">
               <thead>
                 <tr>
                   <th>日期</th>
@@ -795,11 +802,12 @@ input:focus, select:focus {
                   <th>兑换奖励</th>
                   <th>积分盈</th>
                   <th>积分亏</th>
+                  <th>净值</th>
                 </tr>
               </thead>
               <tbody>
                 <template x-if="!reportDays.length">
-                  <tr><td colspan="5" class="stats-empty">📭 暂无数据</td></tr>
+                  <tr><td colspan="6" class="stats-empty">📭 暂无数据</td></tr>
                 </template>
                 <template x-for="r in reportDays" :key="r.date">
                   <tr>
@@ -808,13 +816,38 @@ input:focus, select:focus {
                     <td class="stats-spent" x-text="r.rewards_redeemed + ' 个'"></td>
                     <td class="stats-earn" x-text="'+' + r.points_earned"></td>
                     <td class="stats-spent" x-text="'-' + r.points_spent"></td>
+                    <td :class="r.points_net >= 0 ? 'stats-net-pos' : 'stats-net-neg'" x-text="(r.points_net >= 0 ? '+' : '') + r.points_net"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+            <!-- 周/月视图表格：纯积分 -->
+            <table class="stats-table" x-show="reportPeriod !== 'day'">
+              <thead>
+                <tr>
+                  <th>时间区间</th>
+                  <th>积分盈 ▲</th>
+                  <th>积分亏 ▼</th>
+                  <th>净值</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-if="!statsRows.length">
+                  <tr><td colspan="4" class="stats-empty">📭 暂无数据</td></tr>
+                </template>
+                <template x-for="r in statsRows" :key="r.period_start">
+                  <tr>
+                    <td x-text="r.period_start"></td>
+                    <td class="stats-earn" x-text="'+' + r.earned"></td>
+                    <td class="stats-spent" x-text="'-' + r.spent"></td>
+                    <td :class="r.net >= 0 ? 'stats-net-pos' : 'stats-net-neg'" x-text="(r.net >= 0 ? '+' : '') + r.net"></td>
                   </tr>
                 </template>
               </tbody>
             </table>
           </div>
-          <!-- 分页 -->
-          <div x-show="reportTotalPages > 1" style="display:flex;align-items:center;justify-content:center;gap:12px;margin-top:14px;">
+          <!-- 分页（仅日视图） -->
+          <div x-show="reportPeriod === 'day' && reportTotalPages > 1" style="display:flex;align-items:center;justify-content:center;gap:12px;margin-top:14px;">
             <button class="btn btn-sm" style="background:#f1f5f9;color:#4a5568;"
                     :disabled="reportOffset === 0"
                     @click="reportPrevPage()">◀ 上一页</button>
@@ -826,7 +859,7 @@ input:focus, select:focus {
           </div>
         </div>
 
-        <!-- 图表视图 -->
+        <!-- 图表视图（仅日视图） -->
         <div x-show="reportView === 'chart'" style="position:relative;height:320px;">
           <canvas id="dailyReportChart"></canvas>
           <div x-show="!reportDays.length" class="stats-empty" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);">📭 暂无数据</div>
@@ -1330,7 +1363,9 @@ function app() {
     hasActiveLoan: false,
     repayAmounts: {},
 
-    // -- daily report --
+    // -- stats / daily report --
+    statsCache: null,
+    reportPeriod: 'day',
     reportDays: [],
     reportTotalDays: 0,
     reportOffset: 0,
@@ -1350,6 +1385,9 @@ function app() {
     toasts: [],
 
     // === computed helpers (in template via getters) ===
+    get statsRows() {
+      return this.statsCache?.[this.reportPeriod] ?? [];
+    },
     get reportPageNum() {
       return Math.floor(this.reportOffset / this.reportLimit) + 1;
     },
@@ -1787,7 +1825,15 @@ function app() {
       }
     },
 
-    // === daily report ===
+    // === stats / daily report ===
+    async loadStats() {
+      try {
+        this.statsCache = await this.api(`/stats`);
+      } catch (e) {
+        this.statsCache = null;
+      }
+    },
+
     async loadDailyReport() {
       try {
         const data = await this.api(`/daily-report?offset=${this.reportOffset}&limit=${this.reportLimit}`);
@@ -1801,9 +1847,19 @@ function app() {
       }
     },
 
+    switchReportPeriod(period) {
+      this.reportPeriod = period;
+      if (period === 'day') {
+        this.reportOffset = 0;
+        this.loadDailyReport();
+      } else {
+        this.loadStats();
+      }
+    },
+
     switchReportView(view) {
       this.reportView = view;
-      if (view === 'chart') {
+      if (view === 'chart' && this.reportPeriod === 'day') {
         this.$nextTick(() => this.renderChart());
       }
     },
@@ -1933,6 +1989,7 @@ function app() {
           this.loadGroupInfo(),
           this.loadTasks(),
           this.loadRewards(),
+          this.loadStats(),
           this.loadDailyReport(),
           this.loadTodaysConditions(),
         ]);
