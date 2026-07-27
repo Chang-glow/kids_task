@@ -1830,7 +1830,7 @@ function app() {
       try {
         this.statsCache = await this.api(`/stats`);
         if (this.reportView === 'chart' && this.reportPeriod !== 'day') {
-          this.$nextTick(() => this.renderChart());
+          this.chartTimeout = setTimeout(() => this.renderChart(), 50);
         }
       } catch (e) {
         this.statsCache = null;
@@ -1843,7 +1843,7 @@ function app() {
         this.reportDays = data.days || [];
         this.reportTotalDays = data.total_days || 0;
         if (this.reportView === 'chart') {
-          this.$nextTick(() => this.renderChart());
+          this.chartTimeout = setTimeout(() => this.renderChart(), 50);
         }
       } catch (e) {
         this.reportDays = [];
@@ -1863,7 +1863,7 @@ function app() {
     switchReportView(view) {
       this.reportView = view;
       if (view === 'chart') {
-        this.$nextTick(() => this.renderChart());
+        this.chartTimeout = setTimeout(() => this.renderChart(), 50);
       }
     },
 
@@ -1883,18 +1883,24 @@ function app() {
     renderChart() {
       const canvas = document.getElementById('dailyReportChart');
       if (!canvas) return;
-      const ctx = canvas.getContext('2d');
-      if (this.chartInstance) this.chartInstance.destroy();
 
       const isDay = this.reportPeriod === 'day';
       const rows = isDay ? [...this.reportDays].reverse() : [...this.statsRows].reverse();
       if (!rows.length) return;
 
+      // 确保 canvas 有尺寸再渲染（x-show 切换后布局可能延迟）
+      if (canvas.offsetWidth === 0 || canvas.offsetHeight === 0) {
+        setTimeout(() => this.renderChart(), 50);
+        return;
+      }
+
+      if (this.chartInstance) this.chartInstance.destroy();
+      const ctx = canvas.getContext('2d');
+
       const labels = rows.map(r => isDay ? r.date : r.period_start);
       const datasets = [];
 
       if (isDay) {
-        // 日视图：数量类实线（左轴），积分类虚线（右轴）
         datasets.push(
           {
             label: '完成任务数',
@@ -1924,7 +1930,6 @@ function app() {
           },
         );
       } else {
-        // 周/月视图：积分盈实线，积分亏虚线
         datasets.push(
           {
             label: '积分盈',
@@ -1949,22 +1954,26 @@ function app() {
         y: { type: 'linear', position: 'left', title: { display: true, text: '积分', font: { weight: 'bold' } }, beginAtZero: true },
       };
 
-      this.chartInstance = new Chart(ctx, {
-        type: 'line',
-        data: { labels, datasets },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          interaction: { mode: 'index', intersect: false },
-          plugins: {
-            legend: {
-              position: 'bottom',
-              labels: { usePointStyle: true, padding: 20, font: { weight: 'bold' } },
+      try {
+        this.chartInstance = new Chart(ctx, {
+          type: 'line',
+          data: { labels, datasets },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+              legend: {
+                position: 'bottom',
+                labels: { usePointStyle: true, padding: 20, font: { weight: 'bold' } },
+              },
             },
+            scales: yAxes,
           },
-          scales: yAxes,
-        },
-      });
+        });
+      } catch (e) {
+        console.error('Chart render failed:', e);
+      }
     },
 
     // === progress ===
