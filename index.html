@@ -1894,7 +1894,7 @@ function app() {
       const datasets = [];
 
       if (isDay) {
-        // 日视图：任务数 + 奖励数（左轴），盈 + 亏（右轴）
+        // 日视图：数量类实线（左轴），积分类虚线（右轴）
         datasets.push(
           {
             label: '完成任务数',
@@ -1913,6 +1913,7 @@ function app() {
             data: rows.map(r => r.points_earned),
             borderColor: '#7c3aed', backgroundColor: 'rgba(124,58,237,0.1)',
             yAxisID: 'y1', tension: 0.3, pointRadius: 4, pointHoverRadius: 6,
+            borderDash: [5, 3],
           },
           {
             label: '积分亏',
@@ -1923,7 +1924,7 @@ function app() {
           },
         );
       } else {
-        // 周/月视图：只有积分盈、亏（单轴）
+        // 周/月视图：积分盈实线，积分亏虚线
         datasets.push(
           {
             label: '积分盈',
