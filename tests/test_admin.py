@@ -218,3 +218,99 @@ class TestAdminDelete:
     def test_delete_group_nonexistent(self, client, admin_token):
         res = client.delete("/api/admin/groups/99999", headers=admin_token)
         assert res.status_code == 404
+
+
+class TestAdminTaskEdit:
+    """任务编辑测试"""
+
+    def test_edit_task(self, client, admin_token, group_ctx):
+        """PUT /api/admin/tasks/{task_id} 成功编辑任务。"""
+        gid = group_ctx["id"]
+        admin_h = admin_token
+        # Create a task
+        res = client.post(
+            f"/api/admin/groups/{gid}/tasks",
+            json={"name": "原始名称", "emoji": "📖", "base_points": 20, "description": "原始描述"},
+            headers=admin_h,
+        )
+        task_id = res.json()["id"]
+
+        # Edit it
+        res = client.put(
+            f"/api/admin/tasks/{task_id}",
+            json={
+                "group_id": gid,
+                "name": "新名称",
+                "emoji": "🏃",
+                "base_points": 30,
+                "description": "新描述",
+                "is_repeatable": True,
+            },
+            headers=admin_h,
+        )
+        assert res.status_code == 200
+        data = res.json()
+        assert data["name"] == "新名称"
+        assert data["base_points"] == 30
+        assert data["description"] == "新描述"
+        assert data["is_repeatable"] is True
+
+    def test_edit_task_validation(self, client, admin_token, group_ctx):
+        """任务编辑：名称不能为空，积分必须 > 0。"""
+        gid = group_ctx["id"]
+        admin_h = admin_token
+        res = client.post(
+            f"/api/admin/groups/{gid}/tasks",
+            json={"name": "验证", "emoji": "📖", "base_points": 20},
+            headers=admin_h,
+        )
+        task_id = res.json()["id"]
+
+        assert client.put(
+            f"/api/admin/tasks/{task_id}",
+            json={"group_id": gid, "name": "", "emoji": "📖", "base_points": 20},
+            headers=admin_h,
+        ).status_code == 400
+
+        assert client.put(
+            f"/api/admin/tasks/{task_id}",
+            json={"group_id": gid, "name": "X", "emoji": "📖", "base_points": 0},
+            headers=admin_h,
+        ).status_code == 400
+
+    def test_edit_task_undo(self, client, admin_token, group_ctx):
+        """任务编辑可以撤销。"""
+        gid = group_ctx["id"]
+        admin_h = admin_token
+        res = client.post(
+            f"/api/admin/groups/{gid}/tasks",
+            json={"name": "撤销测试", "emoji": "📖", "base_points": 20, "description": "旧描述"},
+            headers=admin_h,
+        )
+        task_id = res.json()["id"]
+
+        # Edit
+        client.put(
+            f"/api/admin/tasks/{task_id}",
+            json={
+                "group_id": gid,
+                "name": "修改后",
+                "emoji": "🏃",
+                "base_points": 50,
+                "description": "新描述",
+            },
+            headers=admin_h,
+        )
+
+        # Find the undo operation
+        ops = client.get(f"/api/admin/operations?group_id={gid}", headers=admin_h).json()
+        task_edit_op = next(o for o in ops if o["operation_type"] == "task_edit")
+        undo_resp = client.post(f"/api/admin/undo/{task_edit_op['id']}", headers=admin_h)
+        assert undo_resp.status_code == 200
+
+        # Verify reverted
+        tasks = client.get(f"/api/admin/tasks?group_id={gid}", headers=admin_h).json()
+        reverted = next(t for t in tasks if t["id"] == task_id)
+        assert reverted["name"] == "撤销测试"
+        assert reverted["base_points"] == 20
+        assert reverted["description"] == "旧描述"

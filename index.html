@@ -346,6 +346,41 @@ input:focus, select:focus {
 .reward-item .r-cost { font-size: 0.85rem; font-weight: 800; color: var(--orange); margin-bottom: 10px; }
 .reward-item .btn { width: 100%; justify-content: center; }
 
+/* 涨降价显示 */
+.reward-item.surge-item {
+  background: linear-gradient(135deg, #fff5f5, #fed7d7);
+  border-color: var(--red);
+}
+.reward-item.sale-item {
+  background: linear-gradient(135deg, #f0fff4, #c6f6d5);
+  border-color: #38a169;
+}
+.surge-badge {
+  display: inline-block;
+  background: var(--red);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 800;
+  padding: 2px 8px;
+  border-radius: 10px;
+  margin-bottom: 4px;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+.sale-badge {
+  display: inline-block;
+  background: #38a169;
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 800;
+  padding: 2px 8px;
+  border-radius: 10px;
+  margin-bottom: 4px;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+.cost-original { color: #a0aec0; font-size: 0.75rem; display: block; }
+.cost-surged { color: var(--red); font-size: 0.9rem; display: block; }
+.cost-sale { color: #38a169; }
+
 /* 流水记录 */
 .log-section { margin-bottom: 20px; }
 .log-toggle {
@@ -1101,16 +1136,32 @@ input:focus, select:focus {
               <div class="empty" style="grid-column:1/-1"><span class="ei">🎁</span>还没有奖励，快来设定吧！</div>
             </template>
             <template x-for="r in rewards" :key="r.id">
-              <div class="reward-item">
+              <div class="reward-item" :class="{ 'surge-item': r.surge_rate, 'sale-item': r.sale_rate }">
                 <div class="r-emoji" x-text="r.emoji"></div>
+                <template x-if="r.surge_rate">
+                  <span class="surge-badge" x-text="'📈 +' + Math.round(r.surge_rate * 100) + '%'"></span>
+                </template>
+                <template x-if="r.sale_rate">
+                  <span class="sale-badge" x-text="'📉 -' + Math.round(r.sale_rate * 100) + '%'"></span>
+                </template>
                 <div class="r-name" x-text="r.name"></div>
-                <div class="r-cost">🪙 <span x-text="r.cost_points"></span> 分</div>
+                <div class="r-cost">
+                  <template x-if="r.surge_rate || r.sale_rate">
+                    <span>
+                      <span class="cost-original">🪙 <s x-text="r.cost_points"></s></span>
+                      <span class="cost-surged" :class="{ 'cost-sale': r.sale_rate }">🪙 <span x-text="r.surged_cost"></span> 分</span>
+                    </span>
+                  </template>
+                  <template x-if="!r.surge_rate && !r.sale_rate">
+                    🪙 <span x-text="r.cost_points"></span> 分
+                  </template>
+                </div>
                 <button class="btn btn-sm"
-                        :class="currentPoints >= r.cost_points ? 'btn-orange' : 'btn-danger'"
-                        :style="currentPoints < r.cost_points ? 'opacity:0.6' : ''"
+                        :class="currentPoints >= (r.surged_cost || r.cost_points) ? 'btn-orange' : 'btn-danger'"
+                        :style="currentPoints < (r.surged_cost || r.cost_points) ? 'opacity:0.6' : ''"
                         @click="redeemReward(r)">
-                  <span x-show="currentPoints >= r.cost_points">🎁 兑换</span>
-                  <span x-show="currentPoints < r.cost_points">😢 不够</span>
+                  <span x-show="currentPoints >= (r.surged_cost || r.cost_points)">🎁 兑换</span>
+                  <span x-show="currentPoints < (r.surged_cost || r.cost_points)">😢 不够</span>
                 </button>
                 <button class="btn btn-sm btn-danger" style="margin-top:6px;width:100%;" @click="deleteReward(r.id)">🗑️ 删除</button>
               </div>
@@ -1713,10 +1764,21 @@ function app() {
     },
 
     async redeemReward(r) {
-      if (this.currentPoints < r.cost_points) {
-        return this.toast(`积分不够啦，继续加油！💪 还差 ${r.cost_points - this.currentPoints} 分`, 'error');
+      const cost = r.surged_cost || r.cost_points;
+      if (this.currentPoints < cost) {
+        let hint = '';
+        if (r.surge_rate) hint = `（含涨价 ${Math.round(r.surge_rate * 100)}%）`;
+        if (r.sale_rate) hint = `（已降价 ${Math.round(r.sale_rate * 100)}%）`;
+        return this.toast(`积分不够啦，继续加油！💪 还差 ${cost - this.currentPoints} 分${hint}`, 'error');
       }
-      if (!confirm(`确定用 ${r.cost_points} 积分兑换「${r.name}」吗？`)) return;
+      let confirmMsg = `确定用 ${cost} 积分兑换「${r.name}」吗？`;
+      if (r.surge_rate) {
+        confirmMsg += `\n⚠️ 原价 ${r.cost_points} 分，今日涨价 ${Math.round(r.surge_rate * 100)}%`;
+      }
+      if (r.sale_rate) {
+        confirmMsg += `\n🎉 原价 ${r.cost_points} 分，今日降价 ${Math.round(r.sale_rate * 100)}%`;
+      }
+      if (!confirm(confirmMsg)) return;
       try {
         const res = await this.api(`/rewards/redeem`, 'POST', { reward_id: r.id });
         this.toast(res.message);

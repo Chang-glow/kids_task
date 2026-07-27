@@ -7,19 +7,45 @@ from api.dependencies import get_group_id
 from api.models.database import get_db
 from api.models.schemas import AddRewardRequest, RedeemRewardRequest
 from api.config import now_cst
+from api.services.surge_service import ensure_daily_surges, get_todays_surges
 
 router = APIRouter(prefix="/api/rewards", tags=["rewards"])
 
 
 @router.get("")
 def get_rewards(group_id: int = Depends(get_group_id)):
-    """获取奖励列表（按 group 过滤，积分升序）"""
+    """获取奖励列表（按 group 过滤，积分升序），注入今日涨价信息。"""
     conn = get_db()
     cur = conn.cursor()
+    today = now_cst().date()
+    ensure_daily_surges(cur, group_id, today)
+    surges = get_todays_surges(cur, group_id, today)
+
     cur.execute("SELECT * FROM rewards WHERE group_id = %s ORDER BY cost_points ASC", (group_id,))
     rewards = cur.fetchall()
+    conn.commit()
     conn.close()
-    return [dict(r) for r in rewards]
+
+    result = []
+    for r in rewards:
+        d = dict(r)
+        info = surges.get(r["id"])
+        if info is not None:
+            rate = info["rate"]
+            if info["type"] == "sale":
+                d["surge_rate"] = None
+                d["sale_rate"] = rate
+                d["surged_cost"] = max(1, round(r["cost_points"] * (1 - rate)))
+            else:
+                d["surge_rate"] = rate
+                d["sale_rate"] = None
+                d["surged_cost"] = round(r["cost_points"] * (1 + rate))
+        else:
+            d["surge_rate"] = None
+            d["sale_rate"] = None
+            d["surged_cost"] = None
+        result.append(d)
+    return result
 
 
 @router.post("")
@@ -61,12 +87,29 @@ def redeem_reward(req: RedeemRewardRequest, group_id: int = Depends(get_group_id
         if not child:
             raise HTTPException(status_code=400, detail="群组中没有孩子")
         current_points = child["total_points"]
-        cost = reward["cost_points"]
+
+        # 检查今日涨降价
+        today = now_cst().date()
+        ensure_daily_surges(cur, group_id, today)
+        surges = get_todays_surges(cur, group_id, today)
+        info = surges.get(reward["id"])
+        if info is not None:
+            rate = info["rate"]
+            if info["type"] == "sale":
+                cost = max(1, round(reward["cost_points"] * (1 - rate)))
+            else:
+                cost = round(reward["cost_points"] * (1 + rate))
+        else:
+            cost = reward["cost_points"]
 
         if current_points < cost:
+            hint = ""
+            if info:
+                pct = int(info["rate"] * 100)
+                hint = f"（含{'降价' if info['type'] == 'sale' else '涨价'} {pct}%）"
             raise HTTPException(
                 status_code=400,
-                detail=f"积分不够啦，继续加油！💪 当前积分：{current_points}，需要：{cost}，还差：{cost - current_points}",
+                detail=f"积分不够啦，继续加油！💪 当前积分：{current_points}，需要：{cost}{hint}，还差：{cost - current_points}",
             )
 
         now = now_cst()
@@ -77,7 +120,12 @@ def redeem_reward(req: RedeemRewardRequest, group_id: int = Depends(get_group_id
             conn.rollback()
             raise HTTPException(status_code=400, detail="积分异常，兑换失败")
 
-        description = f"兑换奖励「{reward['name']}」{reward['emoji']} → -{cost}分"
+        if info is not None:
+            pct = int(info["rate"] * 100)
+            label = "降价" if info["type"] == "sale" else "涨价"
+            description = f"兑换奖励「{reward['name']}」{reward['emoji']} → -{cost}分（原价{reward['cost_points']}，{label}{pct}%）"
+        else:
+            description = f"兑换奖励「{reward['name']}」{reward['emoji']} → -{cost}分"
         cur.execute(
             "INSERT INTO point_logs (action, amount, description, created_at, group_id, child_id)"
             " VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
@@ -85,12 +133,18 @@ def redeem_reward(req: RedeemRewardRequest, group_id: int = Depends(get_group_id
         )
         log_id = cur.fetchone()["id"]
 
+        undo_data = {
+            "reward_name": reward["name"], "cost": cost,
+            "log_id": log_id, "child_id": child["id"],
+        }
+        if info is not None:
+            undo_data["rate"] = info["rate"]
+            undo_data["type"] = info["type"]
         cur.execute(
             "INSERT INTO undo_operations (group_id, child_id, operation_type, description, undo_data, created_at)"
             " VALUES (%s, %s, %s, %s, %s, %s)",
             (group_id, child["id"], "redeem_reward", description,
-             json.dumps({"reward_name": reward["name"], "cost": cost,
-                         "log_id": log_id, "child_id": child["id"]}), now),
+             json.dumps(undo_data), now),
         )
 
         # Also update legacy users table
@@ -127,3 +181,16 @@ def delete_reward(reward_id: int, group_id: int = Depends(get_group_id)):
     conn.commit()
     conn.close()
     return {"success": True}
+
+
+@router.get("/surges/today")
+def get_todays_surges_endpoint(group_id: int = Depends(get_group_id)):
+    """获取今日涨价映射 {reward_id: rate}。"""
+    conn = get_db()
+    cur = conn.cursor()
+    today = now_cst().date()
+    ensure_daily_surges(cur, group_id, today)
+    surges = get_todays_surges(cur, group_id, today)
+    conn.commit()
+    conn.close()
+    return surges

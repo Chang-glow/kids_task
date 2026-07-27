@@ -496,6 +496,24 @@ def admin_undo(operation_id: int, _token: str = Depends(_require_admin)):
             else:
                 set_condition_override(cur, op["group_id"], undo_data["condition_id"], "none", now)
 
+        elif op_type == "surge_override_change":
+            from api.services.surge_service import set_surge_override
+            prev = undo_data.get("previous_override")
+            if prev:
+                set_surge_override(cur, op["group_id"], prev["reward_id"],
+                                   prev["override_type"], prev.get("manual_rate"), now)
+            else:
+                set_surge_override(cur, op["group_id"], undo_data["reward_id"], "none", None, now)
+
+        elif op_type == "task_edit":
+            cur.execute(
+                "UPDATE tasks SET name = %s, emoji = %s, base_points = %s, description = %s,"
+                " is_repeatable = %s WHERE id = %s",
+                (undo_data["previous_name"], undo_data["previous_emoji"],
+                 undo_data["previous_base_points"], undo_data.get("previous_description", ""),
+                 undo_data["previous_is_repeatable"], undo_data["task_id"]),
+            )
+
         cur.execute("UPDATE undo_operations SET undone_at = %s WHERE id = %s", (now, operation_id))
         conn.commit()
         return {"success": True}
@@ -768,6 +786,75 @@ def admin_set_boost_override(req: dict, _token: str = Depends(_require_admin)):
         # 清除当天翻倍缓存，下次访问时按新 override 重新生成
         cur.execute(
             "DELETE FROM daily_task_boosts WHERE group_id = %s AND boost_date = %s",
+            (group_id, now.date()),
+        )
+        conn.commit()
+        return result
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception:
+        conn.rollback()
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail="服务器内部错误")
+    finally:
+        conn.close()
+
+
+# ---- 涨价管理 ----
+
+
+@router.get("/surge-overrides")
+def admin_get_surge_overrides(group_id: int, _token: str = Depends(_require_admin)):
+    """列出群组的所有涨价覆盖设置。"""
+    from api.services.surge_service import get_surge_overrides
+    conn = get_db()
+    cur = conn.cursor()
+    rows = get_surge_overrides(cur, group_id)
+    conn.close()
+    return rows
+
+
+@router.post("/surge-overrides")
+def admin_set_surge_override(req: dict, _token: str = Depends(_require_admin)):
+    """设置涨价覆盖。"""
+    from api.services.surge_service import set_surge_override, get_surge_overrides
+    group_id = req.get("group_id")
+    reward_id = req.get("reward_id")
+    override_type = req.get("override_type", "")
+    manual_rate = req.get("manual_rate")
+
+    if not group_id or not reward_id:
+        raise HTTPException(status_code=400, detail="缺少 group_id 或 reward_id")
+    if override_type not in ("lock_in", "lock_out", "manual_rate", "none"):
+        raise HTTPException(status_code=400, detail="override_type 无效")
+    if override_type == "manual_rate":
+        mr = float(manual_rate or 0)
+        if mr == 0 or (abs(mr) < 0.10 or abs(mr) > 0.50):
+            raise HTTPException(status_code=400, detail="manual_rate 不合法：涨价 0.10-0.50，降价 -0.25 至 -0.10")
+
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        old_overrides = get_surge_overrides(cur, group_id)
+        old_override = next((o for o in old_overrides if o["reward_id"] == reward_id), None)
+        if old_override:
+            for k in list(old_override):
+                if hasattr(old_override[k], 'isoformat'):
+                    old_override[k] = old_override[k].isoformat()
+
+        now = now_cst()
+        result = set_surge_override(cur, group_id, reward_id, override_type,
+                                     float(manual_rate) if manual_rate else None, now)
+        cur.execute(
+            "INSERT INTO undo_operations (group_id, operation_type, description, undo_data, created_at)"
+            " VALUES (%s, %s, %s, %s, %s)",
+            (group_id, "surge_override_change",
+             f"涨价覆盖: reward_id={reward_id} {override_type}",
+             json.dumps({"reward_id": reward_id, "previous_override": old_override}), now),
+        )
+        cur.execute(
+            "DELETE FROM daily_reward_surges WHERE group_id = %s AND surge_date = %s",
             (group_id, now.date()),
         )
         conn.commit()
@@ -1071,6 +1158,7 @@ def admin_add_task(group_id: int, req: dict, _token: str = Depends(_require_admi
     emoji = req.get("emoji", "📖")
     base_points = int(req.get("base_points", 20))
     is_repeatable = req.get("is_repeatable", False)
+    description = req.get("description", "").strip()
     child_id = req.get("child_id")
 
     if not name or base_points <= 0:
@@ -1079,9 +1167,9 @@ def admin_add_task(group_id: int, req: dict, _token: str = Depends(_require_admi
     cur = conn.cursor()
     now = now_cst()
     cur.execute(
-        "INSERT INTO tasks (name, emoji, base_points, status, is_repeatable, created_at, group_id, child_id)"
-        " VALUES (%s, %s, %s, 'pending', %s, %s, %s, %s) RETURNING id",
-        (name, emoji, base_points, is_repeatable, now, group_id, child_id),
+        "INSERT INTO tasks (name, emoji, base_points, description, status, is_repeatable, created_at, group_id, child_id)"
+        " VALUES (%s, %s, %s, %s, 'pending', %s, %s, %s, %s) RETURNING id",
+        (name, emoji, base_points, description, is_repeatable, now, group_id, child_id),
     )
     task_id = cur.fetchone()["id"]
     conn.commit()
@@ -1104,6 +1192,68 @@ def admin_delete_task(group_id: int, task_id: int, _token: str = Depends(_requir
     conn.commit()
     conn.close()
     return {"success": True}
+
+
+@router.put("/tasks/{task_id}")
+def admin_edit_task(task_id: int, req: dict, _token: str = Depends(_require_admin)):
+    """编辑任务：名称、图标、积分、描述、是否重复。"""
+    from api.models.schemas import EditTaskRequest
+    name = req.get("name", "").strip()
+    emoji = req.get("emoji", "📖")
+    base_points = int(req.get("base_points", 20))
+    description = req.get("description", "").strip()
+    is_repeatable = req.get("is_repeatable", False)
+    group_id = req.get("group_id")
+
+    if not name or base_points <= 0:
+        raise HTTPException(status_code=400, detail="任务名称和积分不能为空")
+    if not group_id:
+        raise HTTPException(status_code=400, detail="缺少 group_id")
+
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT * FROM tasks WHERE id = %s AND group_id = %s", (task_id, group_id))
+        task = cur.fetchone()
+        if not task:
+            raise HTTPException(status_code=404, detail="任务不存在")
+
+        undo_data = {
+            "task_id": task_id,
+            "previous_name": task["name"],
+            "previous_emoji": task["emoji"],
+            "previous_base_points": task["base_points"],
+            "previous_description": task.get("description", ""),
+            "previous_is_repeatable": task["is_repeatable"],
+        }
+
+        cur.execute(
+            "UPDATE tasks SET name = %s, emoji = %s, base_points = %s, description = %s,"
+            " is_repeatable = %s WHERE id = %s",
+            (name, emoji, base_points, description, is_repeatable, task_id),
+        )
+
+        now = now_cst()
+        cur.execute(
+            "INSERT INTO undo_operations (group_id, child_id, operation_type, description, undo_data, created_at)"
+            " VALUES (%s, %s, %s, %s, %s, %s)",
+            (group_id, task.get("child_id"), "task_edit",
+             f"编辑任务「{task['name']}」→「{name}」",
+             json.dumps(undo_data), now),
+        )
+
+        conn.commit()
+        cur.execute("SELECT * FROM tasks WHERE id = %s", (task_id,))
+        return dict(cur.fetchone())
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception:
+        conn.rollback()
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail="服务器内部错误")
+    finally:
+        conn.close()
 
 
 # ---- 跨群组奖励管理 ----

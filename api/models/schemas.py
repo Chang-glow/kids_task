@@ -56,6 +56,15 @@ class AddChildRequest(BaseModel):
     emoji: str = "👶"
 
 
+class EditTaskRequest(BaseModel):
+    name: str
+    emoji: str
+    base_points: int
+    description: str = ""
+    is_repeatable: bool = False
+    group_id: int
+
+
 class BorrowRequest(BaseModel):
     amount: int
     child_id: int | None = None

@@ -101,6 +101,7 @@ def init_db():
     cur.execute("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP")
     cur.execute("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS group_id INTEGER REFERENCES family_groups(id)")
     cur.execute("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS child_id INTEGER REFERENCES children(id)")
+    cur.execute("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS description TEXT DEFAULT ''")
 
     # ---- 奖励商城表 ----
     cur.execute("""
@@ -173,6 +174,33 @@ def init_db():
             group_id INTEGER REFERENCES family_groups(id),
             override_type TEXT NOT NULL,
             manual_multiplier NUMERIC(3,2),
+            created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+    """)
+
+    # ---- 每日奖励涨价 ----
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS daily_reward_surges (
+            id SERIAL PRIMARY KEY,
+            reward_id INTEGER REFERENCES rewards(id) ON DELETE CASCADE,
+            group_id INTEGER REFERENCES family_groups(id),
+            surge_date DATE NOT NULL,
+            rate NUMERIC(4,2) NOT NULL,
+            type TEXT NOT NULL DEFAULT 'surge',
+            created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+            UNIQUE(reward_id, surge_date)
+        )
+    """)
+    cur.execute("ALTER TABLE daily_reward_surges ADD COLUMN IF NOT EXISTS type TEXT NOT NULL DEFAULT 'surge'")
+
+    # ---- 涨价覆盖设置（admin）----
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS daily_reward_surge_overrides (
+            reward_id INTEGER PRIMARY KEY REFERENCES rewards(id) ON DELETE CASCADE,
+            group_id INTEGER REFERENCES family_groups(id),
+            override_type TEXT NOT NULL,
+            manual_rate NUMERIC(4,2),
             created_at TIMESTAMP NOT NULL DEFAULT NOW(),
             updated_at TIMESTAMP NOT NULL DEFAULT NOW()
         )

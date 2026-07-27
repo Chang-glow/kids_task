@@ -12,6 +12,7 @@
 - **惩罚冷静期** — 扣分有 10 分钟 / 1 小时 / 24 小时三档上限，避免情绪化操作
 - **限时翻倍** — 每日随机3个任务获得 1.5x-2.0x 倍率，连续中奖权重衰减，admin 可覆盖
 - **悬赏条件** — 三种类型：接受挑战（弹窗自评 pass/fail）、连续打卡（连续 N 天完成奖励/中断扣分）、任务集合（同一天完成指定/随机任务集奖励），每日随机 4 选
+- **涨降价** — 每日随机 2-5 个奖励涨降价，涨幅 10%-50%（5% 一档），降幅 10%-25%（5% 一档），admin 可锁定/免疫/手动设定幅度
 - **撤回支持** — 所有操作可撤销，`undo_operations` 表记录完整上下文
 - **贷款系统** — 可借积分应急，日利率单利计息，按时还款积累信用分提升贷款额度
 
@@ -72,11 +73,12 @@ pytest tests/ -v
 │   └── services/
 │       ├── point_service.py     # 积分计算（星级 × 基础分 → 最终分）
 │       ├── boost_service.py     # 每日翻倍（权重抽样、衰减、覆盖）
+│       ├── surge_service.py     # 每日涨降价（随机选取、涨降幅分配、覆盖）
 │       ├── condition_service.py # 悬赏条件（选取、奖惩、streak/task_set 检测）
 │       └── loan_service.py      # 贷款服务（利息、信用分）
 ├── index.html              # 主前端 SPA（Alpine.js）
 ├── admin.html              # Admin 管理后台
-├── tests/                  # pytest 测试（96 个测试）
+├── tests/                  # pytest 测试（119 个测试）
 │   ├── conftest.py
 │   ├── test_smoke.py
 │   ├── test_group.py
@@ -87,6 +89,7 @@ pytest tests/ -v
 │   ├── test_admin.py
 │   ├── test_loans.py
 │   ├── test_boosts.py        # 限时翻倍测试
+│   ├── test_surges.py        # 涨降价测试
 │   └── test_conditions.py    # 悬赏条件测试
 ├── old/                    # 旧版单文件 app.py + index.html（保留对照）
 ├── requirements.txt
@@ -108,6 +111,8 @@ pytest tests/ -v
 | `loans` | 贷款记录（本金、剩余本金、日利率、累计利息、状态） |
 | `daily_task_boosts` | 每日翻倍记录（任务 × 日期 × 倍率） |
 | `daily_boost_overrides` | 翻倍覆盖（lock_in / lock_out / manual） |
+| `daily_reward_surges` | 每日涨降价记录（奖励 × 日期 × 幅度 × 类型） |
+| `daily_reward_surge_overrides` | 涨降价覆盖（lock_in / lock_out / manual_rate） |
 | `conditions` | 悬赏条件定义（acceptance / streak / task_set_specific / task_set_random） |
 | `condition_task_bindings` | 条件 ↔ 任务多对多绑定 |
 | `daily_condition_selections` | 每日条件选取（群组 × 日期，advisory lock 防竞态） |
@@ -147,10 +152,11 @@ pytest tests/ -v
 
 | 方法 | 路径 | 功能 |
 |------|------|------|
-| GET | `/api/rewards` | 获取奖励列表（按积分升序） |
+| GET | `/api/rewards` | 获取奖励列表（按积分升序，注入涨降价信息） |
 | POST | `/api/rewards` | 添加奖励 |
-| POST | `/api/rewards/redeem` | 兑换奖励（事务保护，不扣成负数） |
+| POST | `/api/rewards/redeem` | 兑换奖励（事务保护，不扣成负数，应用涨降价） |
 | DELETE | `/api/rewards/{id}` | 删除奖励 |
+| GET | `/api/rewards/surges/today` | 获取今日涨降价映射 |
 
 ### 孩子 & 积分
 
@@ -172,6 +178,9 @@ pytest tests/ -v
 | GET | `/api/admin/groups` | 列出所有群组 |
 | GET | `/api/admin/boost-overrides` | 读取翻倍覆盖设置 |
 | POST | `/api/admin/boost-overrides` | 设置翻倍覆盖 |
+| GET | `/api/admin/surge-overrides` | 读取涨降价覆盖设置 |
+| POST | `/api/admin/surge-overrides` | 设置涨降价覆盖 |
+| PUT | `/api/admin/tasks/{id}` | 编辑任务（名称、积分、描述等） |
 | GET | `/api/admin/conditions` | 列出悬赏条件 |
 | POST | `/api/admin/conditions` | 创建悬赏条件 |
 | DELETE | `/api/admin/conditions/{id}` | 删除悬赏条件 |
