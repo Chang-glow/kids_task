@@ -266,6 +266,30 @@ def init_db():
         )
     """)
 
+    # ---- 条件覆盖设置（admin lock_in / lock_out）----
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS condition_overrides (
+            id SERIAL PRIMARY KEY,
+            group_id INTEGER REFERENCES family_groups(id),
+            condition_id INTEGER REFERENCES conditions(id) ON DELETE CASCADE,
+            override_type TEXT NOT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+            UNIQUE(group_id, condition_id)
+        )
+    """)
+
+    # ---- 条件刷新记录（每日限额）----
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS condition_refresh_log (
+            id SERIAL PRIMARY KEY,
+            group_id INTEGER REFERENCES family_groups(id),
+            refresh_date DATE NOT NULL,
+            refresh_count INTEGER NOT NULL DEFAULT 1,
+            point_cost INTEGER NOT NULL DEFAULT 0,
+            created_at TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+    """)
+
     # ---- 兼容旧 users 表（只读，不再写入）----
     cur.execute("""
         CREATE TABLE IF NOT EXISTS users (

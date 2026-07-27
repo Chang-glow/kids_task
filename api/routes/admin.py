@@ -487,6 +487,15 @@ def admin_undo(operation_id: int, _token: str = Depends(_require_admin)):
             else:
                 set_boost_override(cur, op["group_id"], undo_data["task_id"], "none", None, now)
 
+        elif op_type == "condition_override_change":
+            from api.services.condition_service import set_condition_override
+            prev = undo_data.get("previous_override")
+            if prev:
+                set_condition_override(cur, op["group_id"], prev["condition_id"],
+                                       prev["override_type"], now)
+            else:
+                set_condition_override(cur, op["group_id"], undo_data["condition_id"], "none", now)
+
         cur.execute("UPDATE undo_operations SET undone_at = %s WHERE id = %s", (now, operation_id))
         conn.commit()
         return {"success": True}
@@ -979,6 +988,74 @@ def admin_delete_condition(condition_id: int, _token: str = Depends(_require_adm
         return {"success": True}
     except Exception:
         conn.rollback()
+        raise HTTPException(status_code=500, detail="服务器内部错误")
+    finally:
+        conn.close()
+
+
+# ---- 条件覆盖设置 ----
+
+@router.get("/condition-overrides")
+def admin_get_condition_overrides(group_id: int, _token: str = Depends(_require_admin)):
+    """列出群组的所有条件覆盖设置。"""
+    from api.services.condition_service import get_condition_overrides
+    conn = get_db()
+    cur = conn.cursor()
+    rows = get_condition_overrides(cur, group_id)
+    conn.close()
+    return rows
+
+
+@router.post("/condition-overrides")
+def admin_set_condition_override(req: dict, _token: str = Depends(_require_admin)):
+    """设置条件覆盖（lock_in / lock_out / none 清除）。"""
+    from api.services.condition_service import set_condition_override, get_condition_overrides
+    group_id = req.get("group_id")
+    condition_id = req.get("condition_id")
+    override_type = req.get("override_type", "")
+
+    if not group_id or not condition_id:
+        raise HTTPException(status_code=400, detail="缺少 group_id 或 condition_id")
+    if override_type not in ("lock_in", "lock_out", "none"):
+        raise HTTPException(status_code=400, detail="override_type 无效")
+
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        # 保存旧状态用于撤回
+        old_overrides = get_condition_overrides(cur, group_id)
+        old_override = next((o for o in old_overrides if o["condition_id"] == condition_id), None)
+        if old_override:
+            for k in list(old_override):
+                if hasattr(old_override[k], 'isoformat'):
+                    old_override[k] = old_override[k].isoformat()
+
+        now = now_cst()
+        result = set_condition_override(cur, group_id, condition_id, override_type, now)
+
+        import json
+        cur.execute(
+            "INSERT INTO undo_operations (group_id, operation_type, description, undo_data, created_at)"
+            " VALUES (%s, %s, %s, %s, %s)",
+            (group_id, "condition_override_change",
+             f"条件覆盖: condition_id={condition_id} {override_type}",
+             json.dumps({"condition_id": condition_id, "previous_override": old_override}), now),
+        )
+
+        # 清除当日条件缓存
+        today = now.date()
+        cur.execute(
+            "DELETE FROM daily_condition_selections WHERE group_id = %s AND selection_date = %s",
+            (group_id, today),
+        )
+        conn.commit()
+        return result
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception:
+        conn.rollback()
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail="服务器内部错误")
     finally:
         conn.close()

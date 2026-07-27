@@ -33,6 +33,10 @@ def _cleanup_test_data():
         if _test_group_ids:
             ids = tuple(_test_group_ids)
             cur.execute("DELETE FROM child_condition_acceptances WHERE group_id IN %s", (ids,))
+            cur.execute("DELETE FROM condition_streak_progress WHERE group_id IN %s", (ids,))
+            cur.execute("DELETE FROM condition_task_set_progress WHERE group_id IN %s", (ids,))
+            cur.execute("DELETE FROM condition_refresh_log WHERE group_id IN %s", (ids,))
+            cur.execute("DELETE FROM condition_overrides WHERE group_id IN %s", (ids,))
             cur.execute("DELETE FROM daily_condition_selections WHERE group_id IN %s", (ids,))
             cur.execute("DELETE FROM condition_task_bindings WHERE condition_id IN (SELECT id FROM conditions WHERE group_id IN %s)", (ids,))
             cur.execute("DELETE FROM conditions WHERE group_id IN %s", (ids,))

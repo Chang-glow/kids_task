@@ -13,6 +13,7 @@ from api.services.condition_service import (
     ensure_daily_conditions, get_task_conditions,
     accept_condition, calculate_condition_result,
     check_streak_on_complete, check_taskset_on_complete,
+    ensure_taskset_progress, refresh_daily_conditions,
 )
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
@@ -246,6 +247,10 @@ def get_todays_conditions(group_id: int = Depends(get_group_id)):
     child_row = cur.fetchone()
     child_id = child_row["min"] if child_row else None
 
+    # 构建 task_id → name 映射，用于显示任务名称
+    cur.execute("SELECT id, name FROM tasks WHERE group_id = %s", (group_id,))
+    task_name_map = {r["id"]: r["name"] for r in cur.fetchall()}
+
     cur.execute(
         """SELECT c.id, c.name, c.reward_type, c.bonus_value, c.multiplier_value,
                   c.condition_type, c.streak_days, c.subset_size,
@@ -285,26 +290,43 @@ def get_todays_conditions(group_id: int = Depends(get_group_id)):
             )
             sp = cur.fetchone()
             d["streak_progress"] = dict(sp) if sp else None
-        # task_set 进度
+        # task_set 进度 — 首次访问时 eager 初始化
         if r["condition_type"] in ("task_set_specific", "task_set_random") and child_id:
-            cur.execute(
-                "SELECT completed_tasks, selected_tasks, status FROM condition_task_set_progress"
-                " WHERE child_id = %s AND condition_id = %s AND selection_date = %s",
-                (child_id, r["id"], today),
-            )
-            tp = cur.fetchone()
+            tp = ensure_taskset_progress(cur, child_id, group_id, r["id"], today)
             if tp:
+                # 将 task_id 翻译为 task_name
+                selected_ids = tp.get("selected_tasks", [])
+                completed_ids = tp.get("completed_tasks", [])
                 d["taskset_progress"] = {
-                    "completed_tasks": tp["completed_tasks"] if isinstance(tp["completed_tasks"], list) else [],
-                    "selected_tasks": tp["selected_tasks"] if isinstance(tp["selected_tasks"], list) else [],
+                    "completed_tasks": completed_ids,
+                    "completed_task_names": [task_name_map.get(tid, f"任务{tid}") for tid in completed_ids],
+                    "selected_tasks": selected_ids,
+                    "selected_task_names": [task_name_map.get(tid, f"任务{tid}") for tid in selected_ids],
                     "status": tp["status"],
                 }
             else:
                 d["taskset_progress"] = None
         rows.append(d)
+
+    # 刷新信息
+    cur.execute(
+        "SELECT COUNT(*) as cnt FROM condition_refresh_log"
+        " WHERE group_id = %s AND refresh_date = %s",
+        (group_id, today),
+    )
+    refresh_count = cur.fetchone()["cnt"]
+    free_left = max(0, 2 - refresh_count)
+    next_cost = 0 if refresh_count < 2 else 5 * (refresh_count - 1)
+
     conn.commit()
     conn.close()
-    return rows
+    return {
+        "conditions": rows,
+        "refresh": {
+            "free_refreshes_left": free_left,
+            "next_refresh_cost": next_cost,
+        },
+    }
 
 
 @router.get("/{task_id}/conditions")
@@ -342,3 +364,33 @@ def accept_task_condition(req: AcceptConditionRequest, group_id: int = Depends(g
     conn.commit()
     conn.close()
     return {"success": True}
+
+
+@router.post("/conditions/refresh")
+def refresh_conditions(group_id: int = Depends(get_group_id)):
+    """刷新今日悬赏条件。每日 2 次免费，之后递增 5 积分/次。"""
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT id FROM children WHERE group_id = %s ORDER BY id LIMIT 1", (group_id,))
+        child_row = cur.fetchone()
+        if not child_row:
+            conn.close()
+            raise HTTPException(status_code=400, detail="群组中没有孩子")
+
+        today = now_cst().date()
+        now = now_cst()
+        result = refresh_daily_conditions(cur, group_id, child_row["id"], today, now)
+        conn.commit()
+        return result
+    except ValueError as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail="服务器内部错误")
+    finally:
+        conn.close()

@@ -6,7 +6,19 @@ from api.config import STAR_MULTIPLIERS
 
 
 def select_daily_conditions(cur, group_id: int, count: int = 4) -> list[dict]:
-    """随机选取当天激活的条件。排除已无待完成任务绑定的"死"条件。不足 count 则全选。"""
+    """随机选取当天激活的条件。排除已无待完成任务绑定的"死"条件。不足 count 则全选。
+
+    尊重 condition_overrides 表：lock_in 强制入选，lock_out 强制排除。
+    """
+    # 读取覆盖设置
+    cur.execute(
+        "SELECT condition_id, override_type FROM condition_overrides WHERE group_id = %s",
+        (group_id,),
+    )
+    overrides = {r["condition_id"]: r["override_type"] for r in cur.fetchall()}
+    locked_out = {cid for cid, otype in overrides.items() if otype == "lock_out"}
+    locked_in_ids = {cid for cid, otype in overrides.items() if otype == "lock_in"}
+
     cur.execute(
         """SELECT c.id, c.name, c.reward_type, c.bonus_value, c.multiplier_value
            FROM conditions c
@@ -19,9 +31,19 @@ def select_daily_conditions(cur, group_id: int, count: int = 4) -> list[dict]:
         (group_id,),
     )
     all_conds = [dict(r) for r in cur.fetchall()]
-    if len(all_conds) <= count:
-        return all_conds
-    return random.sample(all_conds, count)
+
+    # 应用覆盖
+    all_conds = [c for c in all_conds if c["id"] not in locked_out]
+    lock_in_conds = [c for c in all_conds if c["id"] in locked_in_ids]
+    remaining = [c for c in all_conds if c["id"] not in locked_in_ids]
+
+    if len(lock_in_conds) >= count:
+        return lock_in_conds[:count]
+
+    need = count - len(lock_in_conds)
+    if len(remaining) <= need:
+        return lock_in_conds + remaining
+    return lock_in_conds + random.sample(remaining, need)
 
 
 def save_daily_conditions(cur, group_id: int, today: date, conditions: list[dict]) -> None:
@@ -49,8 +71,9 @@ def ensure_daily_conditions(cur, group_id: int, today: date, count: int = 4) -> 
         conds = select_daily_conditions(cur, group_id, count)
         if conds:
             save_daily_conditions(cur, group_id, today, conds)
-    # 自动延续活跃的 streak 条件
+    # 自动延续活跃的 streak 条件和所有 task_set 条件
     carry_over_active_streaks(cur, group_id, today)
+    carry_over_task_sets(cur, group_id, today)
 
 
 def get_task_conditions(cur, task_id: int, group_id: int, today: date) -> list[dict]:
@@ -384,3 +407,190 @@ def carry_over_active_streaks(cur, group_id: int, today: date) -> None:
            ON CONFLICT (group_id, condition_id, selection_date) DO NOTHING""",
         (today, group_id),
     )
+
+
+def carry_over_task_sets(cur, group_id: int, today: date) -> None:
+    """把所有 task_set 条件自动加入今日 daily_condition_selections。"""
+    cur.execute(
+        """INSERT INTO daily_condition_selections (group_id, condition_id, selection_date)
+           SELECT c.group_id, c.id, %s
+           FROM conditions c
+           WHERE c.group_id = %s
+             AND c.condition_type IN ('task_set_specific', 'task_set_random')
+           ON CONFLICT (group_id, condition_id, selection_date) DO NOTHING""",
+        (today, group_id),
+    )
+
+
+def ensure_taskset_progress(cur, child_id: int, group_id: int, condition_id: int,
+                            today: date) -> dict | None:
+    """确保 task_set 进度行存在。对 task_set_random 在首次访问时随机抽取子集。
+
+    返回 progress 数据，含 selected_tasks 和 completed_tasks 列表。
+    """
+    cur.execute("SELECT * FROM conditions WHERE id = %s", (condition_id,))
+    cond = cur.fetchone()
+    if not cond:
+        return None
+
+    cur.execute(
+        """INSERT INTO condition_task_set_progress (child_id, group_id, condition_id, selection_date)
+           VALUES (%s, %s, %s, %s)
+           ON CONFLICT (child_id, condition_id, selection_date) DO NOTHING""",
+        (child_id, group_id, condition_id, today),
+    )
+    cur.execute(
+        "SELECT * FROM condition_task_set_progress"
+        " WHERE child_id = %s AND condition_id = %s AND selection_date = %s",
+        (child_id, condition_id, today),
+    )
+    prog = cur.fetchone()
+
+    if cond["condition_type"] == "task_set_random":
+        selected = (prog["selected_tasks"] if isinstance(prog["selected_tasks"], list)
+                    else [])
+        if not selected:
+            # 首次访问：随机抽取 subset_size 个任务
+            cur.execute(
+                "SELECT array_agg(ctb.task_id) AS all_task_ids"
+                " FROM condition_task_bindings ctb WHERE ctb.condition_id = %s",
+                (condition_id,),
+            )
+            row = cur.fetchone()
+            pool = row["all_task_ids"] if row and row["all_task_ids"] else []
+            size = min(cond["subset_size"] or 3, len(pool))
+            import json as _json
+            if size > 0 and len(pool) >= size:
+                selected = random.sample(pool, size)
+            else:
+                selected = pool
+            cur.execute(
+                "UPDATE condition_task_set_progress SET selected_tasks = %s WHERE id = %s",
+                (_json.dumps(selected), prog["id"]),
+            )
+            prog["selected_tasks"] = selected
+
+    completed = (prog["completed_tasks"] if isinstance(prog["completed_tasks"], list)
+                 else [])
+    return {
+        "completed_tasks": completed,
+        "selected_tasks": (prog["selected_tasks"] if isinstance(prog["selected_tasks"], list)
+                           else []),
+        "status": prog["status"],
+    }
+
+
+# ---- 条件覆盖管理 ----
+
+def get_condition_overrides(cur, group_id: int) -> list[dict]:
+    """列出群组的所有条件覆盖设置。"""
+    cur.execute(
+        """SELECT co.*, c.name AS condition_name
+           FROM condition_overrides co
+           JOIN conditions c ON co.condition_id = c.id
+           WHERE co.group_id = %s""",
+        (group_id,),
+    )
+    return [dict(r) for r in cur.fetchall()]
+
+
+def set_condition_override(cur, group_id: int, condition_id: int,
+                           override_type: str, now) -> dict:
+    """设置或清除条件覆盖。override_type='none' 时清除。"""
+    if override_type == "none":
+        cur.execute(
+            "DELETE FROM condition_overrides WHERE group_id = %s AND condition_id = %s",
+            (group_id, condition_id),
+        )
+    else:
+        cur.execute(
+            """INSERT INTO condition_overrides (group_id, condition_id, override_type)
+               VALUES (%s, %s, %s)
+               ON CONFLICT (group_id, condition_id)
+               DO UPDATE SET override_type = EXCLUDED.override_type""",
+            (group_id, condition_id, override_type),
+        )
+    return {"success": True}
+
+
+# ---- 每日刷新 ----
+
+def refresh_daily_conditions(cur, group_id: int, child_id: int, today: date, now) -> dict:
+    """刷新今日悬赏条件，每日 2 次免费，之后每次递增 5 积分。"""
+    cur.execute(
+        "SELECT COUNT(*) as cnt FROM condition_refresh_log"
+        " WHERE group_id = %s AND refresh_date = %s",
+        (group_id, today),
+    )
+    refresh_count = cur.fetchone()["cnt"]
+
+    if refresh_count < 2:
+        point_cost = 0
+    else:
+        point_cost = 5 * (refresh_count - 1)
+
+    if point_cost > 0:
+        cur.execute("SELECT total_points FROM children WHERE id = %s", (child_id,))
+        child = cur.fetchone()
+        if not child or child["total_points"] < point_cost:
+            raise ValueError("积分不足，无法刷新")
+
+        cur.execute(
+            "UPDATE children SET total_points = total_points - %s WHERE id = %s",
+            (point_cost, child_id),
+        )
+        _insert_point_log(cur, "spend", point_cost,
+                          f"🔄 刷新今日悬赏条件 (第{refresh_count + 1}次)",
+                          group_id, child_id, now)
+
+    cur.execute(
+        "INSERT INTO condition_refresh_log (group_id, refresh_date, refresh_count, point_cost, created_at)"
+        " VALUES (%s, %s, %s, %s, %s)",
+        (group_id, today, refresh_count + 1, point_cost, now),
+    )
+
+    # 只清除未被接受的条件（已接受的保留）
+    cur.execute(
+        """DELETE FROM daily_condition_selections
+           WHERE group_id = %s AND selection_date = %s
+             AND condition_id NOT IN (
+               SELECT DISTINCT condition_id FROM child_condition_acceptances
+               WHERE group_id = %s AND acceptance_date = %s AND accepted = true
+             )""",
+        (group_id, today, group_id, today),
+    )
+    # 清除未被接受条件的 task_set 进度
+    cur.execute(
+        """DELETE FROM condition_task_set_progress
+           WHERE group_id = %s AND selection_date = %s
+             AND condition_id NOT IN (
+               SELECT DISTINCT condition_id FROM child_condition_acceptances
+               WHERE group_id = %s AND acceptance_date = %s AND accepted = true
+             )""",
+        (group_id, today, group_id, today),
+    )
+
+    # 补充新条件到 count 上限（不覆盖已有的）
+    cur.execute(
+        "SELECT COUNT(*) FROM daily_condition_selections WHERE group_id = %s AND selection_date = %s",
+        (group_id, today),
+    )
+    existing = cur.fetchone()["count"]
+    needed = max(0, 4 - existing)
+    if needed > 0:
+        conds = select_daily_conditions(cur, group_id, needed)
+        if conds:
+            save_daily_conditions(cur, group_id, today, conds)
+    carry_over_active_streaks(cur, group_id, today)
+    carry_over_task_sets(cur, group_id, today)
+
+    new_count = refresh_count + 1
+    free_left = max(0, 2 - new_count)
+    next_cost = 0 if new_count < 2 else 5 * (new_count - 1)
+
+    return {
+        "success": True,
+        "point_cost": point_cost,
+        "free_refreshes_left": free_left,
+        "next_refresh_cost": next_cost,
+    }
