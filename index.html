@@ -1829,6 +1829,9 @@ function app() {
     async loadStats() {
       try {
         this.statsCache = await this.api(`/stats`);
+        if (this.reportView === 'chart' && this.reportPeriod !== 'day') {
+          this.$nextTick(() => this.renderChart());
+        }
       } catch (e) {
         this.statsCache = null;
       }
@@ -1859,7 +1862,7 @@ function app() {
 
     switchReportView(view) {
       this.reportView = view;
-      if (view === 'chart' && this.reportPeriod === 'day') {
+      if (view === 'chart') {
         this.$nextTick(() => this.renderChart());
       }
     },
@@ -1879,61 +1882,75 @@ function app() {
 
     renderChart() {
       const canvas = document.getElementById('dailyReportChart');
-      if (!canvas || !this.reportDays.length) return;
+      if (!canvas) return;
       const ctx = canvas.getContext('2d');
       if (this.chartInstance) this.chartInstance.destroy();
 
-      // 反转日期顺序让 X 轴从左到右是旧→新
-      const days = [...this.reportDays].reverse();
+      const isDay = this.reportPeriod === 'day';
+      const rows = isDay ? [...this.reportDays].reverse() : [...this.statsRows].reverse();
+      if (!rows.length) return;
+
+      const labels = rows.map(r => isDay ? r.date : r.period_start);
+      const datasets = [];
+
+      if (isDay) {
+        // 日视图：任务数 + 奖励数（左轴），盈 + 亏（右轴）
+        datasets.push(
+          {
+            label: '完成任务数',
+            data: rows.map(r => r.tasks_completed),
+            borderColor: '#16a34a', backgroundColor: 'rgba(22,163,74,0.1)',
+            yAxisID: 'y', tension: 0.3, pointRadius: 4, pointHoverRadius: 6,
+          },
+          {
+            label: '兑换奖励数',
+            data: rows.map(r => r.rewards_redeemed),
+            borderColor: '#ea580c', backgroundColor: 'rgba(234,88,12,0.1)',
+            yAxisID: 'y', tension: 0.3, pointRadius: 4, pointHoverRadius: 6,
+          },
+          {
+            label: '积分盈',
+            data: rows.map(r => r.points_earned),
+            borderColor: '#7c3aed', backgroundColor: 'rgba(124,58,237,0.1)',
+            yAxisID: 'y1', tension: 0.3, pointRadius: 4, pointHoverRadius: 6,
+          },
+          {
+            label: '积分亏',
+            data: rows.map(r => r.points_spent),
+            borderColor: '#ef4444', backgroundColor: 'rgba(239,68,68,0.1)',
+            yAxisID: 'y1', tension: 0.3, pointRadius: 4, pointHoverRadius: 6,
+            borderDash: [5, 3],
+          },
+        );
+      } else {
+        // 周/月视图：只有积分盈、亏（单轴）
+        datasets.push(
+          {
+            label: '积分盈',
+            data: rows.map(r => r.earned),
+            borderColor: '#16a34a', backgroundColor: 'rgba(22,163,74,0.1)',
+            yAxisID: 'y', tension: 0.3, pointRadius: 4, pointHoverRadius: 6,
+          },
+          {
+            label: '积分亏',
+            data: rows.map(r => r.spent),
+            borderColor: '#ef4444', backgroundColor: 'rgba(239,68,68,0.1)',
+            yAxisID: 'y', tension: 0.3, pointRadius: 4, pointHoverRadius: 6,
+            borderDash: [5, 3],
+          },
+        );
+      }
+
+      const yAxes = isDay ? {
+        y: { type: 'linear', position: 'left', title: { display: true, text: '数量（个）', font: { weight: 'bold' } }, beginAtZero: true, ticks: { stepSize: 1 } },
+        y1: { type: 'linear', position: 'right', title: { display: true, text: '积分盈亏', font: { weight: 'bold' } }, grid: { drawOnChartArea: false } },
+      } : {
+        y: { type: 'linear', position: 'left', title: { display: true, text: '积分', font: { weight: 'bold' } }, beginAtZero: true },
+      };
 
       this.chartInstance = new Chart(ctx, {
         type: 'line',
-        data: {
-          labels: days.map(d => d.date),
-          datasets: [
-            {
-              label: '完成任务数',
-              data: days.map(d => d.tasks_completed),
-              borderColor: '#16a34a',
-              backgroundColor: 'rgba(22,163,74,0.1)',
-              yAxisID: 'y',
-              tension: 0.3,
-              pointRadius: 4,
-              pointHoverRadius: 6,
-            },
-            {
-              label: '兑换奖励数',
-              data: days.map(d => d.rewards_redeemed),
-              borderColor: '#ea580c',
-              backgroundColor: 'rgba(234,88,12,0.1)',
-              yAxisID: 'y',
-              tension: 0.3,
-              pointRadius: 4,
-              pointHoverRadius: 6,
-            },
-            {
-              label: '积分盈',
-              data: days.map(d => d.points_earned),
-              borderColor: '#7c3aed',
-              backgroundColor: 'rgba(124,58,237,0.1)',
-              yAxisID: 'y1',
-              tension: 0.3,
-              pointRadius: 4,
-              pointHoverRadius: 6,
-            },
-            {
-              label: '积分亏',
-              data: days.map(d => d.points_spent),
-              borderColor: '#ef4444',
-              backgroundColor: 'rgba(239,68,68,0.1)',
-              yAxisID: 'y1',
-              tension: 0.3,
-              pointRadius: 4,
-              pointHoverRadius: 6,
-              borderDash: [5, 3],
-            },
-          ],
-        },
+        data: { labels, datasets },
         options: {
           responsive: true,
           maintainAspectRatio: false,
@@ -1944,21 +1961,7 @@ function app() {
               labels: { usePointStyle: true, padding: 20, font: { weight: 'bold' } },
             },
           },
-          scales: {
-            y: {
-              type: 'linear',
-              position: 'left',
-              title: { display: true, text: '数量（个）', font: { weight: 'bold' } },
-              beginAtZero: true,
-              ticks: { stepSize: 1 },
-            },
-            y1: {
-              type: 'linear',
-              position: 'right',
-              title: { display: true, text: '积分盈亏', font: { weight: 'bold' } },
-              grid: { drawOnChartArea: false },
-            },
-          },
+          scales: yAxes,
         },
       });
     },
