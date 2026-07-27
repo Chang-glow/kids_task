@@ -223,6 +223,58 @@ def get_punish_limits(group_id: int = Depends(get_group_id)):
     return {"limits": limits}
 
 
+@router.get("/daily-report")
+def get_daily_report(
+    group_id: int = Depends(get_group_id),
+    offset: int = 0,
+    limit: int = 7,
+):
+    """每日汇总报表：完成任务数、兑换奖励数、分数盈亏，按天聚合，支持分页。"""
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "SELECT COUNT(DISTINCT created_at::date) FROM point_logs WHERE group_id = %s",
+            (group_id,),
+        )
+        total_days = cur.fetchone()["count"]
+
+        cur.execute(
+            """
+            SELECT
+                created_at::date AS date,
+                COUNT(*) FILTER (WHERE action = 'earn') AS tasks_completed,
+                COUNT(*) FILTER (WHERE action = 'spend') AS rewards_redeemed,
+                COALESCE(SUM(amount) FILTER (WHERE action = 'earn'), 0) AS points_earned,
+                COALESCE(SUM(amount) FILTER (WHERE action IN ('spend', 'punish')), 0) AS points_spent,
+                COALESCE(SUM(CASE WHEN action = 'earn' THEN amount ELSE -amount END), 0) AS points_net
+            FROM point_logs
+            WHERE group_id = %s
+            GROUP BY created_at::date
+            ORDER BY date DESC
+            LIMIT %s OFFSET %s
+            """,
+            (group_id, limit, offset),
+        )
+        rows = cur.fetchall()
+        days = [
+            {
+                "date": str(row["date"]),
+                "tasks_completed": int(row["tasks_completed"]),
+                "rewards_redeemed": int(row["rewards_redeemed"]),
+                "points_earned": int(row["points_earned"]),
+                "points_spent": int(row["points_spent"]),
+                "points_net": int(row["points_net"]),
+            }
+            for row in rows
+        ]
+        return {"days": days, "total_days": total_days, "offset": offset, "limit": limit}
+    except Exception:
+        raise HTTPException(status_code=500, detail="服务器内部错误")
+    finally:
+        conn.close()
+
+
 @router.get("/stats")
 def get_stats(group_id: int = Depends(get_group_id)):
     """积分统计（按日/周/月聚合）"""

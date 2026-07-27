@@ -6,6 +6,7 @@
 <title>🌟 我的超级任务基地</title>
 <link href="https://fonts.googleapis.com/css2?family=ZCOOL+KuaiLe&family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
 <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
 /* ===== CSS 变量 & 全局 ===== */
 :root {
@@ -773,38 +774,60 @@ input:focus, select:focus {
         <div class="points-icon">🏆</div>
       </div>
 
-      <!-- 统计中心 -->
+      <!-- 日报表 -->
       <div class="card" style="margin-bottom:20px;">
-        <div class="card-title">📊 统计中心</div>
-        <div class="stats-tabs">
-          <button class="stats-tab" :class="{ active: statsPeriod === 'day' }"   @click="switchStats('day')">📅 日</button>
-          <button class="stats-tab" :class="{ active: statsPeriod === 'week' }"  @click="switchStats('week')">📆 周</button>
-          <button class="stats-tab" :class="{ active: statsPeriod === 'month' }" @click="switchStats('month')">🗓️ 月</button>
+        <div class="card-title" style="display:flex;align-items:center;justify-content:space-between;">
+          <span>📊 日报表</span>
+          <div style="display:flex;gap:6px;">
+            <button class="stats-tab" :class="{ active: reportView === 'table' }" @click="switchReportView('table')">📋 表格</button>
+            <button class="stats-tab" :class="{ active: reportView === 'chart' }" @click="switchReportView('chart')">📈 图表</button>
+          </div>
         </div>
-        <div class="stats-table-wrap">
-          <table class="stats-table">
-            <thead>
-              <tr>
-                <th>时间区间</th>
-                <th>积分盈 ▲</th>
-                <th>积分亏 ▼</th>
-                <th>净值</th>
-              </tr>
-            </thead>
-            <tbody>
-              <template x-if="!statsRows.length">
-                <tr><td colspan="4" class="stats-empty">📭 暂无数据</td></tr>
-              </template>
-              <template x-for="r in statsRows" :key="r.period_start">
+
+        <!-- 表格视图 -->
+        <div x-show="reportView === 'table'">
+          <div class="stats-table-wrap">
+            <table class="stats-table">
+              <thead>
                 <tr>
-                  <td x-text="r.period_start"></td>
-                  <td class="stats-earn" x-text="'+' + r.earned"></td>
-                  <td class="stats-spent" x-text="'-' + r.spent"></td>
-                  <td :class="r.net >= 0 ? 'stats-net-pos' : 'stats-net-neg'" x-text="(r.net >= 0 ? '+' : '') + r.net"></td>
+                  <th>日期</th>
+                  <th>完成任务</th>
+                  <th>兑换奖励</th>
+                  <th>分数盈亏</th>
                 </tr>
-              </template>
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                <template x-if="!reportDays.length">
+                  <tr><td colspan="4" class="stats-empty">📭 暂无数据</td></tr>
+                </template>
+                <template x-for="r in reportDays" :key="r.date">
+                  <tr>
+                    <td x-text="r.date"></td>
+                    <td class="stats-earn" x-text="r.tasks_completed + ' 个'"></td>
+                    <td class="stats-spent" x-text="r.rewards_redeemed + ' 个'"></td>
+                    <td :class="r.points_net >= 0 ? 'stats-net-pos' : 'stats-net-neg'" x-text="(r.points_net >= 0 ? '+' : '') + r.points_net"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+          <!-- 分页 -->
+          <div x-show="reportTotalPages > 1" style="display:flex;align-items:center;justify-content:center;gap:12px;margin-top:14px;">
+            <button class="btn btn-sm" style="background:#f1f5f9;color:#4a5568;"
+                    :disabled="reportOffset === 0"
+                    @click="reportPrevPage()">◀ 上一页</button>
+            <span style="font-size:0.85rem;font-weight:700;color:#718096;"
+                  x-text="(reportPageNum) + ' / ' + reportTotalPages"></span>
+            <button class="btn btn-sm" style="background:#f1f5f9;color:#4a5568;"
+                    :disabled="reportOffset + reportLimit >= reportTotalDays"
+                    @click="reportNextPage()">下一页 ▶</button>
+          </div>
+        </div>
+
+        <!-- 图表视图 -->
+        <div x-show="reportView === 'chart'" style="position:relative;height:320px;">
+          <canvas id="dailyReportChart"></canvas>
+          <div x-show="!reportDays.length" class="stats-empty" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);">📭 暂无数据</div>
         </div>
       </div>
 
@@ -1303,9 +1326,13 @@ function app() {
     hasActiveLoan: false,
     repayAmounts: {},
 
-    // -- stats --
-    statsCache: null,
-    statsPeriod: 'day',
+    // -- daily report --
+    reportDays: [],
+    reportTotalDays: 0,
+    reportOffset: 0,
+    reportLimit: 7,
+    reportView: 'table',
+    chartInstance: null,
 
     // -- modal --
     modalOpen: false,
@@ -1319,8 +1346,11 @@ function app() {
     toasts: [],
 
     // === computed helpers (in template via getters) ===
-    get statsRows() {
-      return this.statsCache?.[this.statsPeriod] ?? [];
+    get reportPageNum() {
+      return Math.floor(this.reportOffset / this.reportLimit) + 1;
+    },
+    get reportTotalPages() {
+      return Math.max(1, Math.ceil(this.reportTotalDays / this.reportLimit));
     },
 
     // === init ===
@@ -1753,17 +1783,114 @@ function app() {
       }
     },
 
-    // === stats ===
-    async loadStats() {
+    // === daily report ===
+    async loadDailyReport() {
       try {
-        this.statsCache = await this.api(`/stats`);
+        const data = await this.api(`/daily-report?offset=${this.reportOffset}&limit=${this.reportLimit}`);
+        this.reportDays = data.days || [];
+        this.reportTotalDays = data.total_days || 0;
+        if (this.reportView === 'chart') {
+          this.$nextTick(() => this.renderChart());
+        }
       } catch (e) {
-        this.statsCache = null;
+        this.reportDays = [];
       }
     },
 
-    switchStats(period) {
-      this.statsPeriod = period;
+    switchReportView(view) {
+      this.reportView = view;
+      if (view === 'chart') {
+        this.$nextTick(() => this.renderChart());
+      }
+    },
+
+    reportPrevPage() {
+      this.reportOffset = Math.max(0, this.reportOffset - this.reportLimit);
+      this.loadDailyReport();
+    },
+
+    reportNextPage() {
+      this.reportOffset = Math.min(
+        this.reportTotalDays - this.reportLimit,
+        this.reportOffset + this.reportLimit,
+      );
+      this.loadDailyReport();
+    },
+
+    renderChart() {
+      const canvas = document.getElementById('dailyReportChart');
+      if (!canvas || !this.reportDays.length) return;
+      const ctx = canvas.getContext('2d');
+      if (this.chartInstance) this.chartInstance.destroy();
+
+      // 反转日期顺序让 X 轴从左到右是旧→新
+      const days = [...this.reportDays].reverse();
+
+      this.chartInstance = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: days.map(d => d.date),
+          datasets: [
+            {
+              label: '完成任务数',
+              data: days.map(d => d.tasks_completed),
+              borderColor: '#16a34a',
+              backgroundColor: 'rgba(22,163,74,0.1)',
+              yAxisID: 'y',
+              tension: 0.3,
+              pointRadius: 4,
+              pointHoverRadius: 6,
+            },
+            {
+              label: '兑换奖励数',
+              data: days.map(d => d.rewards_redeemed),
+              borderColor: '#ea580c',
+              backgroundColor: 'rgba(234,88,12,0.1)',
+              yAxisID: 'y',
+              tension: 0.3,
+              pointRadius: 4,
+              pointHoverRadius: 6,
+            },
+            {
+              label: '分数盈亏',
+              data: days.map(d => d.points_net),
+              borderColor: '#7c3aed',
+              backgroundColor: 'rgba(124,58,237,0.1)',
+              yAxisID: 'y1',
+              tension: 0.3,
+              pointRadius: 4,
+              pointHoverRadius: 6,
+              borderDash: [5, 3],
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: {
+              position: 'bottom',
+              labels: { usePointStyle: true, padding: 20, font: { weight: 'bold' } },
+            },
+          },
+          scales: {
+            y: {
+              type: 'linear',
+              position: 'left',
+              title: { display: true, text: '数量（个）', font: { weight: 'bold' } },
+              beginAtZero: true,
+              ticks: { stepSize: 1 },
+            },
+            y1: {
+              type: 'linear',
+              position: 'right',
+              title: { display: true, text: '积分盈亏', font: { weight: 'bold' } },
+              grid: { drawOnChartArea: false },
+            },
+          },
+        },
+      });
     },
 
     // === progress ===
@@ -1792,7 +1919,7 @@ function app() {
           this.loadGroupInfo(),
           this.loadTasks(),
           this.loadRewards(),
-          this.loadStats(),
+          this.loadDailyReport(),
           this.loadTodaysConditions(),
         ]);
         this.loadPunishLimits();
