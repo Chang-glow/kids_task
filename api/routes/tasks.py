@@ -2,7 +2,7 @@
 
 import json
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Body
 from api.dependencies import get_group_id
 from api.models.database import get_db
 from api.models.schemas import AddTaskRequest, CompleteTaskRequest, AcceptConditionRequest
@@ -367,8 +367,11 @@ def accept_task_condition(req: AcceptConditionRequest, group_id: int = Depends(g
 
 
 @router.post("/conditions/refresh")
-def refresh_conditions(group_id: int = Depends(get_group_id)):
-    """刷新今日悬赏条件。每日 2 次免费，之后递增 5 积分/次。"""
+def refresh_conditions(
+    group_id: int = Depends(get_group_id),
+    condition_id: int | None = Body(None, embed=True),
+):
+    """刷新单条悬赏条件。每日 2 次免费，之后递增 5 积分/次。"""
     conn = get_db()
     cur = conn.cursor()
     try:
@@ -380,7 +383,7 @@ def refresh_conditions(group_id: int = Depends(get_group_id)):
 
         today = now_cst().date()
         now = now_cst()
-        result = refresh_daily_conditions(cur, group_id, child_row["id"], today, now)
+        result = refresh_daily_conditions(cur, group_id, child_row["id"], today, now, condition_id)
         conn.commit()
         return result
     except ValueError as e:

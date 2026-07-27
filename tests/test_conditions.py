@@ -509,8 +509,16 @@ class TestConditionOverrides:
 class TestConditionRefresh:
     """POST /api/tasks/conditions/refresh."""
 
+    def _get_first_unaccepted_condition(self, client, headers):
+        res = client.get("/api/tasks/conditions/today", headers=headers)
+        conds = res.json()["conditions"]
+        for c in conds:
+            if not c["accepted"]:
+                return c["id"]
+        return None
+
     def test_refresh_free(self, client, group_ctx, admin_token):
-        """First two refreshes are free."""
+        """First refresh is free, per-condition."""
         h = group_ctx["headers"]
         res = client.post("/api/tasks", json={"name": "阅读", "emoji": "📖", "base_points": 20}, headers=h)
         task_id = res.json()["id"]
@@ -527,41 +535,44 @@ class TestConditionRefresh:
             headers=admin_token,
         )
 
-        r = client.post("/api/tasks/conditions/refresh", headers=h)
+        cid = self._get_first_unaccepted_condition(client, h)
+        assert cid is not None, "Expected at least one unaccepted condition"
+        r = client.post("/api/tasks/conditions/refresh", json={"condition_id": cid}, headers=h)
         assert r.status_code == 200
         data = r.json()
         assert data["point_cost"] == 0
         assert data["free_refreshes_left"] == 1
 
     def test_refresh_second_free(self, client, group_ctx, admin_token):
-        """Second refresh is also free."""
+        """Second refresh is also free, per-condition."""
         h = group_ctx["headers"]
-        res = client.post("/api/tasks", json={"name": "阅读", "emoji": "📖", "base_points": 20}, headers=h)
-        task_id = res.json()["id"]
+        # Create two conditions so there are two to refresh
+        res1 = client.post("/api/tasks", json={"name": "任务A", "emoji": "📖", "base_points": 20}, headers=h)
+        res2 = client.post("/api/tasks", json={"name": "任务B", "emoji": "✏️", "base_points": 20}, headers=h)
+        for tid in [res1.json()["id"], res2.json()["id"]]:
+            client.post(
+                "/api/admin/conditions",
+                json={"group_id": group_ctx["id"], "name": f"条件{tid}", "reward_type": "bonus_points",
+                      "bonus_value": 10, "task_ids": [tid]},
+                headers=admin_token,
+            )
 
-        client.post(
-            "/api/admin/conditions",
-            json={
-                "group_id": group_ctx["id"],
-                "name": "测试条件",
-                "reward_type": "bonus_points",
-                "bonus_value": 10,
-                "task_ids": [task_id],
-            },
-            headers=admin_token,
-        )
+        cid1 = self._get_first_unaccepted_condition(client, h)
+        assert cid1 is not None
+        r1 = client.post("/api/tasks/conditions/refresh", json={"condition_id": cid1}, headers=h)
+        assert r1.status_code == 200
 
-        client.post("/api/tasks/conditions/refresh", headers=h)
-        r = client.post("/api/tasks/conditions/refresh", headers=h)
-        assert r.status_code == 200
-        data = r.json()
+        cid2 = self._get_first_unaccepted_condition(client, h)
+        assert cid2 is not None
+        r2 = client.post("/api/tasks/conditions/refresh", json={"condition_id": cid2}, headers=h)
+        assert r2.status_code == 200
+        data = r2.json()
         assert data["point_cost"] == 0
         assert data["free_refreshes_left"] == 0
 
     def test_refresh_keeps_accepted(self, client, group_ctx, admin_token):
-        """Refresh only replaces unaccepted conditions, keeps accepted ones."""
+        """Refresh only replaces the specified unaccepted condition."""
         h = group_ctx["headers"]
-        # create two tasks, two conditions
         res1 = client.post("/api/tasks", json={"name": "任务A", "emoji": "📖", "base_points": 20}, headers=h)
         res2 = client.post("/api/tasks", json={"name": "任务B", "emoji": "📖", "base_points": 20}, headers=h)
         t1 = res1.json()["id"]
@@ -580,19 +591,20 @@ class TestConditionRefresh:
             headers=admin_token,
         ).json()["condition_id"]
 
-        # force lock_in both so they appear
-        client.post("/api/admin/condition-overrides",
-                    json={"group_id": group_ctx["id"], "condition_id": c1, "override_type": "lock_in"},
-                    headers=admin_token)
-        client.post("/api/admin/condition-overrides",
-                    json={"group_id": group_ctx["id"], "condition_id": c2, "override_type": "lock_in"},
-                    headers=admin_token)
+        # force lock_in both
+        for cid in [c1, c2]:
+            client.post("/api/admin/condition-overrides",
+                        json={"group_id": group_ctx["id"], "condition_id": cid, "override_type": "lock_in"},
+                        headers=admin_token)
 
         # accept c1
         client.post("/api/tasks/conditions/accept", json={"condition_id": c1, "task_id": t1}, headers=h)
 
-        # refresh
-        r = client.post("/api/tasks/conditions/refresh", headers=h)
+        # ensure daily selections exist before refresh
+        client.get("/api/tasks/conditions/today", headers=h)
+
+        # refresh c2 (the unaccepted one)
+        r = client.post("/api/tasks/conditions/refresh", json={"condition_id": c2}, headers=h)
         assert r.status_code == 200
 
         conds = client.get("/api/tasks/conditions/today", headers=h).json()["conditions"]

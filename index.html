@@ -793,19 +793,21 @@ input:focus, select:focus {
                   <th>日期</th>
                   <th>完成任务</th>
                   <th>兑换奖励</th>
-                  <th>分数盈亏</th>
+                  <th>积分盈</th>
+                  <th>积分亏</th>
                 </tr>
               </thead>
               <tbody>
                 <template x-if="!reportDays.length">
-                  <tr><td colspan="4" class="stats-empty">📭 暂无数据</td></tr>
+                  <tr><td colspan="5" class="stats-empty">📭 暂无数据</td></tr>
                 </template>
                 <template x-for="r in reportDays" :key="r.date">
                   <tr>
                     <td x-text="r.date"></td>
                     <td class="stats-earn" x-text="r.tasks_completed + ' 个'"></td>
                     <td class="stats-spent" x-text="r.rewards_redeemed + ' 个'"></td>
-                    <td :class="r.points_net >= 0 ? 'stats-net-pos' : 'stats-net-neg'" x-text="(r.points_net >= 0 ? '+' : '') + r.points_net"></td>
+                    <td class="stats-earn" x-text="'+' + r.points_earned"></td>
+                    <td class="stats-spent" x-text="'-' + r.points_spent"></td>
                   </tr>
                 </template>
               </tbody>
@@ -899,10 +901,8 @@ input:focus, select:focus {
             <div class="conditions-box">
               <div class="cond-title" style="display:flex;align-items:center;justify-content:space-between;">
                 <span>🎯 今日悬赏条件（选做，有奖有罚）</span>
-                <button class="btn btn-sm"
-                        :style="conditionRefresh.next_refresh_cost > 0 ? 'background:#fef3c7;color:#92400e;' : 'background:#e8e8e8;'"
-                        @click="refreshConditions()"
-                        x-text="conditionRefresh.next_refresh_cost > 0 ? '🔄 刷新 (' + conditionRefresh.next_refresh_cost + '分)' : '🔄 免费刷新 (' + conditionRefresh.free_refreshes_left + '次)'"></button>
+                <span style="font-size:0.75rem;color:#92400e;"
+                      x-text="conditionRefresh.next_refresh_cost > 0 ? '🔄 刷新消耗 ' + conditionRefresh.next_refresh_cost + ' 分' : '🔄 剩余 ' + conditionRefresh.free_refreshes_left + ' 次免费刷新'"></span>
               </div>
               <template x-if="todaysConditions.length > 0">
                 <template x-for="c in todaysConditions" :key="c.id">
@@ -937,6 +937,10 @@ input:focus, select:focus {
                       </div>
                     </div>
                     <span class="cond-reward" x-text="conditionRewardText(c)"></span>
+                    <button x-show="!c.accepted"
+                            class="btn btn-sm" style="flex-shrink:0;background:#fef3c7;color:#92400e;font-size:0.7rem;padding:4px 8px;"
+                            @click="refreshOneCondition(c.id)"
+                            x-text="conditionRefresh.next_refresh_cost > 0 ? '🔄' + conditionRefresh.next_refresh_cost : '🔄'"></button>
                     <button x-show="!c.accepted && (!c.condition_type || c.condition_type === 'acceptance')"
                             class="btn btn-sm btn-primary"
                             @click="acceptCondition(c)" style="flex-shrink:0;">接受</button>
@@ -1462,17 +1466,17 @@ function app() {
       } catch (e) { /* ignore */ }
     },
 
-    async refreshConditions() {
+    async refreshOneCondition(conditionId) {
       const cost = this.conditionRefresh.next_refresh_cost;
       if (cost > 0) {
-        if (!confirm(`刷新悬赏条件需要消耗 ${cost} 积分，确定要刷新吗？`)) return;
+        if (!confirm(`刷新这条悬赏需要消耗 ${cost} 积分，确定吗？`)) return;
       }
       try {
-        const res = await this.api('/tasks/conditions/refresh', 'POST');
+        const res = await this.api('/tasks/conditions/refresh', 'POST', { condition_id: conditionId });
         if (res.point_cost > 0) {
-          this.toast(`已消耗 ${res.point_cost} 积分刷新悬赏条件`);
+          this.toast(`已消耗 ${res.point_cost} 积分刷新悬赏`);
         } else {
-          this.toast('悬赏条件已刷新');
+          this.toast('悬赏已刷新');
         }
         await this.loadTodaysConditions();
         await this.loadTasks();
@@ -1852,10 +1856,20 @@ function app() {
               pointHoverRadius: 6,
             },
             {
-              label: '分数盈亏',
-              data: days.map(d => d.points_net),
+              label: '积分盈',
+              data: days.map(d => d.points_earned),
               borderColor: '#7c3aed',
               backgroundColor: 'rgba(124,58,237,0.1)',
+              yAxisID: 'y1',
+              tension: 0.3,
+              pointRadius: 4,
+              pointHoverRadius: 6,
+            },
+            {
+              label: '积分亏',
+              data: days.map(d => d.points_spent),
+              borderColor: '#ef4444',
+              backgroundColor: 'rgba(239,68,68,0.1)',
               yAxisID: 'y1',
               tension: 0.3,
               pointRadius: 4,

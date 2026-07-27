@@ -515,8 +515,28 @@ def set_condition_override(cur, group_id: int, condition_id: int,
 
 # ---- 每日刷新 ----
 
-def refresh_daily_conditions(cur, group_id: int, child_id: int, today: date, now) -> dict:
-    """刷新今日悬赏条件，每日 2 次免费，之后每次递增 5 积分。"""
+def refresh_daily_conditions(cur, group_id: int, child_id: int, today: date, now,
+                              condition_id: int | None = None) -> dict:
+    """刷新单条悬赏条件，每日 2 次免费，之后每次递增 5 积分。"""
+    # 检查该条件是否已被接受，已接受不可刷新
+    if condition_id is not None:
+        cur.execute(
+            "SELECT 1 FROM child_condition_acceptances"
+            " WHERE group_id = %s AND condition_id = %s AND acceptance_date = %s AND accepted = true",
+            (group_id, condition_id, today),
+        )
+        if cur.fetchone():
+            raise ValueError("已接受的条件不能刷新")
+
+        # 确认该条件确实在今日选单中
+        cur.execute(
+            "SELECT 1 FROM daily_condition_selections"
+            " WHERE group_id = %s AND selection_date = %s AND condition_id = %s",
+            (group_id, today, condition_id),
+        )
+        if not cur.fetchone():
+            raise ValueError("条件不在今日选单中")
+
     cur.execute(
         "SELECT COUNT(*) as cnt FROM condition_refresh_log"
         " WHERE group_id = %s AND refresh_date = %s",
@@ -549,40 +569,66 @@ def refresh_daily_conditions(cur, group_id: int, child_id: int, today: date, now
         (group_id, today, refresh_count + 1, point_cost, now),
     )
 
-    # 只清除未被接受的条件（已接受的保留）
-    cur.execute(
-        """DELETE FROM daily_condition_selections
-           WHERE group_id = %s AND selection_date = %s
-             AND condition_id NOT IN (
-               SELECT DISTINCT condition_id FROM child_condition_acceptances
-               WHERE group_id = %s AND acceptance_date = %s AND accepted = true
-             )""",
-        (group_id, today, group_id, today),
-    )
-    # 清除未被接受条件的 task_set 进度
-    cur.execute(
-        """DELETE FROM condition_task_set_progress
-           WHERE group_id = %s AND selection_date = %s
-             AND condition_id NOT IN (
-               SELECT DISTINCT condition_id FROM child_condition_acceptances
-               WHERE group_id = %s AND acceptance_date = %s AND accepted = true
-             )""",
-        (group_id, today, group_id, today),
-    )
-
-    # 补充新条件到 count 上限（不覆盖已有的）
-    cur.execute(
-        "SELECT COUNT(*) FROM daily_condition_selections WHERE group_id = %s AND selection_date = %s",
-        (group_id, today),
-    )
-    existing = cur.fetchone()["count"]
-    needed = max(0, 4 - existing)
-    if needed > 0:
-        conds = select_daily_conditions(cur, group_id, needed)
-        if conds:
-            save_daily_conditions(cur, group_id, today, conds)
-    carry_over_active_streaks(cur, group_id, today)
-    carry_over_task_sets(cur, group_id, today)
+    if condition_id is not None:
+        # 只替换指定的一条未接受条件
+        cur.execute(
+            "DELETE FROM daily_condition_selections"
+            " WHERE group_id = %s AND selection_date = %s AND condition_id = %s",
+            (group_id, today, condition_id),
+        )
+        cur.execute(
+            "DELETE FROM condition_task_set_progress"
+            " WHERE group_id = %s AND selection_date = %s AND condition_id = %s",
+            (group_id, today, condition_id),
+        )
+        # 获取当前选单中已有的条件 ID，避免重复
+        cur.execute(
+            "SELECT condition_id FROM daily_condition_selections"
+            " WHERE group_id = %s AND selection_date = %s",
+            (group_id, today),
+        )
+        existing_ids = {r["condition_id"] for r in cur.fetchall()}
+        # 从候选池中选一条不在已有列表中的
+        candidates = select_daily_conditions(cur, group_id, 20)
+        new_cond = None
+        for c in candidates:
+            if c["id"] not in existing_ids:
+                new_cond = c
+                break
+        if new_cond:
+            save_daily_conditions(cur, group_id, today, [new_cond])
+    else:
+        # 兜底：全量刷新（不应再走到这里，但保留兼容）
+        cur.execute(
+            """DELETE FROM daily_condition_selections
+               WHERE group_id = %s AND selection_date = %s
+                 AND condition_id NOT IN (
+                   SELECT DISTINCT condition_id FROM child_condition_acceptances
+                   WHERE group_id = %s AND acceptance_date = %s AND accepted = true
+                 )""",
+            (group_id, today, group_id, today),
+        )
+        cur.execute(
+            """DELETE FROM condition_task_set_progress
+               WHERE group_id = %s AND selection_date = %s
+                 AND condition_id NOT IN (
+                   SELECT DISTINCT condition_id FROM child_condition_acceptances
+                   WHERE group_id = %s AND acceptance_date = %s AND accepted = true
+                 )""",
+            (group_id, today, group_id, today),
+        )
+        cur.execute(
+            "SELECT COUNT(*) FROM daily_condition_selections WHERE group_id = %s AND selection_date = %s",
+            (group_id, today),
+        )
+        existing = cur.fetchone()["count"]
+        needed = max(0, 4 - existing)
+        if needed > 0:
+            conds = select_daily_conditions(cur, group_id, needed)
+            if conds:
+                save_daily_conditions(cur, group_id, today, conds)
+        carry_over_active_streaks(cur, group_id, today)
+        carry_over_task_sets(cur, group_id, today)
 
     new_count = refresh_count + 1
     free_left = max(0, 2 - new_count)
