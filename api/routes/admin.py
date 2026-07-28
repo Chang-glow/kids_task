@@ -444,6 +444,11 @@ def admin_undo(operation_id: int, _token: str = Depends(_require_admin)):
                 (undo_data["cost"], undo_data["child_id"]),
             )
             cur.execute("UPDATE point_logs SET undone = true WHERE id = %s", (undo_data["log_id"],))
+            if undo_data.get("coupon_used") and undo_data.get("coupon_id"):
+                cur.execute(
+                    "UPDATE coupons SET used = false, reward_id = NULL, used_at = NULL WHERE id = %s",
+                    (undo_data["coupon_id"],),
+                )
 
         elif op_type == "punish":
             cur.execute(
@@ -1335,3 +1340,34 @@ def admin_delete_reward(group_id: int, reward_id: int, _token: str = Depends(_re
     conn.commit()
     conn.close()
     return {"success": True}
+
+
+# ---- 奖章 & 优惠券管理 ----
+
+
+@router.get("/medals-stats")
+def admin_get_medals_stats(group_id: int, _token: str = Depends(_require_admin)):
+    """Admin: 获取群组所有孩子的奖章和优惠券统计。"""
+    from api.services.medal_service import get_all_children_medals
+    conn = get_db()
+    cur = conn.cursor()
+    today = now_cst().date()
+    stats = get_all_children_medals(cur, group_id, today)
+    conn.close()
+    return stats
+
+
+@router.get("/coupons")
+def admin_get_coupons(group_id: int, _token: str = Depends(_require_admin)):
+    """Admin: 查看群组所有优惠券。"""
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        """SELECT cp.*, c.name AS child_name
+           FROM coupons cp JOIN children c ON cp.child_id = c.id
+           WHERE cp.group_id = %s ORDER BY cp.created_at DESC""",
+        (group_id,),
+    )
+    coupons = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    return coupons

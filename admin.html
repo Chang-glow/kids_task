@@ -149,7 +149,8 @@
       <button class="tab" :class="{ active: tab === 'loan' }" @click="tab = 'loan'; loadLoanSettings()">💸 贷款设置</button>
       <button class="tab" :class="{ active: tab === 'time' }" @click="tab = 'time'; loadSimulatedTime()">🕐 时间模拟</button>
       <button class="tab" :class="{ active: tab === 'boost' }" @click="tab = 'boost'; onActiveGroupChange()">🔥 限时翻倍</button>
-      <button class="tab" :class="{ active: tab === 'surge' }" @click="tab = 'surge'; onActiveGroupChange()">📈 涨价管理</button>
+      <button class="tab" :class="{ active: tab === 'pricing' }" @click="tab = 'pricing'; onActiveGroupChange()">⏰ 时段定价</button>
+      <button class="tab" :class="{ active: tab === 'coupons' }" @click="tab = 'coupons'; onActiveGroupChange()">🎟️ 优惠券</button>
       <button class="tab" :class="{ active: tab === 'conditions' }" @click="tab = 'conditions'; onActiveGroupChange()">🎯 附加条件</button>
       <button class="tab" :class="{ active: tab === 'manage' }" @click="tab = 'manage'; onActiveGroupChange()">📋 任务/奖励</button>
     </div>
@@ -416,15 +417,21 @@
               </select>
               <button class="btn btn-primary btn-sm" @click="saveBoostOverride()">保存</button>
             </div>
+            <div class="form-row" style="gap:8px;align-items:center;margin-bottom:12px;" x-show="boostForm.override_type !== 'none'">
+              <label style="font-size:0.82rem;min-width:60px;">持续天数</label>
+              <input type="range" x-model.number="boostForm.duration_days" min="0" max="30" style="flex:1;max-width:160px;">
+              <span style="font-size:0.78rem;min-width:40px;color:#6b7280;" x-text="boostForm.duration_days > 0 ? boostForm.duration_days + '天' : '永久'"></span>
+            </div>
             <table class="stats-table" x-show="boostOverrides.length > 0">
-              <thead><tr><th>任务</th><th>覆盖类型</th><th>手动倍率</th><th>操作</th></tr></thead>
+              <thead><tr><th>任务</th><th>覆盖类型</th><th>手动倍率</th><th>剩余</th><th>操作</th></tr></thead>
               <tbody>
                 <template x-for="o in boostOverrides" :key="o.task_id">
                   <tr>
                     <td x-text="o.task_name"></td>
                     <td x-text="o.override_type"></td>
                     <td x-text="o.manual_multiplier || '-'"></td>
-                    <td><button class="btn btn-sm btn-danger" @click="boostForm.task_id = o.task_id; boostForm.override_type = 'none'; saveBoostOverride()">清除</button></td>
+                    <td x-text="o.expires_at ? Math.max(0, Math.ceil((new Date(o.expires_at) - new Date()) / 86400000)) + '天' : '永久'"></td>
+                    <td><button class="btn btn-sm btn-danger" @click="boostForm.task_id = o.task_id; boostForm.override_type = 'none'; boostForm.duration_days = 0; saveBoostOverride()">清除</button></td>
                   </tr>
                 </template>
               </tbody>
@@ -434,11 +441,11 @@
       </div>
     </div>
 
-    <!-- ===== Tab: 涨价管理 ===== -->
-    <div x-show="tab === 'surge'">
+    <!-- ===== Tab: 时段定价 ===== -->
+    <div x-show="tab === 'pricing'">
       <div class="card">
-        <h3>📈 奖励涨价覆盖设置</h3>
-        <p style="font-size:0.85rem;color:#6b7280;margin-bottom:12px;">强制锁定/排除奖励的每日涨价，或手动指定涨幅。</p>
+        <h3>⏰ 奖励时段定价覆盖</h3>
+        <p style="font-size:0.85rem;color:#6b7280;margin-bottom:12px;">控制奖励的时段定价曲线：8:00/18:30 过零，11:00 涨幅峰值，1:00 降幅谷值。</p>
         <div class="form-row" style="margin-bottom:12px;">
           <select x-model="activeGroupId" @change="onActiveGroupChange()" style="flex:1;">
             <option value="">请选择群组</option>
@@ -450,51 +457,128 @@
         <template x-if="activeGroupId">
           <div>
             <div class="form-row" style="gap:8px;margin-bottom:12px;flex-wrap:wrap;">
-              <select x-model="surgeForm.reward_id" style="flex:2;">
+              <select x-model="pricingForm.reward_id" style="flex:2;">
                 <option value="">选择奖励</option>
-                <template x-for="r in surgeRewards" :key="r.id">
+                <template x-for="r in pricingRewards" :key="r.id">
                   <option :value="r.id" x-text="r.name + ' (' + r.cost_points + '分)'"></option>
                 </template>
               </select>
-              <select x-model="surgeForm.override_type" style="flex:1;">
-                <option value="lock_in">🔒 强制涨降价</option>
-                <option value="lock_out">🚫 免疫涨降价</option>
-                <option value="manual_rate">✏️ 手动涨幅</option>
+              <select x-model="pricingForm.override_type" style="flex:1;">
+                <option value="lock_in">🔒 强制参与</option>
+                <option value="lock_out">🚫 免疫波动</option>
+                <option value="manual_params">✏️ 手动参数</option>
                 <option value="none">🗑️ 清除覆盖</option>
               </select>
-              <select x-model="surgeForm.manual_rate"
-                     x-show="surgeForm.override_type === 'manual_rate'"
-                     style="width:90px;">
-                <option value="">选择</option>
-                <optgroup label="涨价">
-                  <option value="0.10">📈 +10%</option>
-                  <option value="0.15">📈 +15%</option>
-                  <option value="0.20">📈 +20%</option>
-                  <option value="0.25">📈 +25%</option>
-                  <option value="0.30">📈 +30%</option>
-                  <option value="0.35">📈 +35%</option>
-                  <option value="0.40">📈 +40%</option>
-                  <option value="0.45">📈 +45%</option>
-                  <option value="0.50">📈 +50%</option>
-                </optgroup>
-                <optgroup label="降价">
-                  <option value="-0.10">📉 -10%</option>
-                  <option value="-0.15">📉 -15%</option>
-                  <option value="-0.20">📉 -20%</option>
-                  <option value="-0.25">📉 -25%</option>
-                </optgroup>
-              </select>
-              <button class="btn btn-primary btn-sm" @click="saveSurgeOverride()">保存</button>
+              <button class="btn btn-primary btn-sm" @click="savePricingOverride()">保存</button>
             </div>
-            <table class="stats-table" x-show="surgeOverrides.length > 0">
-              <thead><tr><th>奖励</th><th>覆盖类型</th><th>手动涨幅</th><th>操作</th></tr></thead>
+            <!-- 手动参数滑块 -->
+            <div x-show="pricingForm.override_type === 'manual_params'" style="background:#f9fafb;border-radius:8px;padding:12px;margin-bottom:12px;">
+              <div class="form-row" style="gap:8px;align-items:center;margin-bottom:8px;">
+                <label style="font-size:0.78rem;min-width:70px;">涨幅峰值</label>
+                <input type="range" x-model.number="pricingForm.surge_peak_rate" min="0.10" max="0.50" step="0.05" style="flex:1;">
+                <span style="font-weight:700;min-width:45px;text-align:right;font-size:0.8rem;" x-text="Math.round(pricingForm.surge_peak_rate * 100) + '%'"></span>
+              </div>
+              <div class="form-row" style="gap:8px;align-items:center;margin-bottom:8px;">
+                <label style="font-size:0.78rem;min-width:70px;">降幅谷值</label>
+                <input type="range" x-model.number="pricingForm.sale_trough_rate" min="0.10" max="0.25" step="0.05" style="flex:1;">
+                <span style="font-weight:700;min-width:45px;text-align:right;font-size:0.8rem;" x-text="Math.round(pricingForm.sale_trough_rate * 100) + '%'"></span>
+              </div>
+              <div class="form-row" style="gap:8px;align-items:center;margin-bottom:8px;">
+                <label style="font-size:0.78rem;min-width:70px;">平台时长</label>
+                <input type="range" x-model.number="pricingForm.plateau_minutes" min="0" max="180" step="30" style="flex:1;">
+                <span style="font-weight:700;min-width:45px;text-align:right;font-size:0.8rem;" x-text="pricingForm.plateau_minutes + '分'"></span>
+              </div>
+              <div class="form-row" style="gap:8px;align-items:center;">
+                <label style="font-size:0.78rem;min-width:70px;">半山腰</label>
+                <input type="range" x-model.number="pricingForm.partial_peak_factor" min="0.3" max="1.0" step="0.1" style="flex:1;">
+                <span style="font-weight:700;min-width:45px;text-align:right;font-size:0.8rem;" x-text="Math.round(pricingForm.partial_peak_factor * 100) + '%'"></span>
+              </div>
+            </div>
+            <div class="form-row" style="gap:8px;align-items:center;margin-bottom:12px;" x-show="pricingForm.override_type !== 'none'">
+              <label style="font-size:0.82rem;min-width:60px;">持续天数</label>
+              <input type="range" x-model.number="pricingForm.duration_days" min="0" max="30" style="flex:1;max-width:160px;">
+              <span style="font-size:0.78rem;min-width:40px;color:#6b7280;" x-text="pricingForm.duration_days > 0 ? pricingForm.duration_days + '天' : '永久'"></span>
+            </div>
+            <table class="stats-table" x-show="pricingOverrides.length > 0">
+              <thead><tr><th>奖励</th><th>覆盖</th><th>涨幅峰</th><th>降幅谷</th><th>平台</th><th>半山腰</th><th>剩余</th><th>操作</th></tr></thead>
               <tbody>
-                <template x-for="o in surgeOverrides" :key="o.reward_id">
+                <template x-for="o in pricingOverrides" :key="o.reward_id">
                   <tr>
                     <td x-text="o.reward_name"></td>
-                    <td x-text="o.override_type"></td>
-                    <td x-text="o.manual_rate ? (o.manual_rate > 0 ? '📈 +' : '📉 ') + Math.round(Math.abs(o.manual_rate) * 100) + '%' : '-'"></td>
-                    <td><button class="btn btn-sm btn-danger" @click="surgeForm.reward_id = o.reward_id; surgeForm.override_type = 'none'; saveSurgeOverride()">清除</button></td>
+                    <td><span x-text="o.override_type" style="font-size:0.75rem;background:#e5e7eb;padding:2px 6px;border-radius:4px;"></span></td>
+                    <td x-text="o.manual_surge_peak ? Math.round(o.manual_surge_peak * 100) + '%' : '-'"></td>
+                    <td x-text="o.manual_sale_trough ? Math.round(o.manual_sale_trough * 100) + '%' : '-'"></td>
+                    <td x-text="o.manual_plateau ? o.manual_plateau + '分' : '-'"></td>
+                    <td x-text="o.manual_partial_factor ? Math.round(o.manual_partial_factor * 100) + '%' : '-'"></td>
+                    <td x-text="o.expires_at ? Math.max(0, Math.ceil((new Date(o.expires_at) - new Date()) / 86400000)) + '天' : '永久'"></td>
+                    <td><button class="btn btn-sm btn-danger" @click="pricingForm.reward_id = o.reward_id; pricingForm.override_type = 'none'; pricingForm.duration_days = 0; savePricingOverride()">清除</button></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- ===== Tab: 优惠券管理 ===== -->
+    <div x-show="tab === 'coupons'">
+      <div class="card">
+        <h3>🎟️ 优惠券 & 奖章管理</h3>
+        <select x-model="activeGroupId" @change="onActiveGroupChange()" style="margin-bottom:12px;">
+          <option value="">请选择群组</option>
+          <template x-for="g in groups" :key="g.id">
+            <option :value="g.id" x-text="g.name + ' (' + g.invite_code + ')'"></option>
+          </template>
+        </select>
+
+        <div x-show="!activeGroupId" class="empty"><span class="ei">👈</span>请先选择一个群组</div>
+
+        <template x-if="activeGroupId">
+          <div>
+            <!-- 奖章统计 -->
+            <h4>🏅 今日奖章</h4>
+            <table class="ops-table">
+              <thead>
+                <tr><th>孩子</th><th>今日奖章</th><th>未使用优惠券</th></tr>
+              </thead>
+              <tbody>
+                <template x-if="!medalStats.length">
+                  <tr><td colspan="3" class="stats-empty">📭 暂无数据</td></tr>
+                </template>
+                <template x-for="s in medalStats" :key="s.child_id">
+                  <tr>
+                    <td x-text="s.emoji + ' ' + s.name"></td>
+                    <td><strong x-text="s.medals_today"></strong> 枚</td>
+                    <td><strong x-text="s.coupons_unused"></strong> 张</td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+
+            <!-- 优惠券列表 -->
+            <h4 style="margin-top:16px;">🎫 所有优惠券</h4>
+            <table class="ops-table">
+              <thead>
+                <tr><th>孩子</th><th>类型</th><th>折扣</th><th>状态</th><th>创建时间</th></tr>
+              </thead>
+              <tbody>
+                <template x-if="!allCoupons.length">
+                  <tr><td colspan="5" class="stats-empty">📭 暂无优惠券</td></tr>
+                </template>
+                <template x-for="c in allCoupons" :key="c.id">
+                  <tr>
+                    <td x-text="c.child_name"></td>
+                    <td>
+                      <span x-show="c.coupon_type === 'anti_surge'">🛡️ 抗涨价</span>
+                      <span x-show="c.coupon_type === 'pro_sale'">💰 抄底</span>
+                    </td>
+                    <td><strong x-text="'-' + c.discount_pct + '%'"></strong></td>
+                    <td>
+                      <span x-show="c.used" style="color:#94a3b8;">已使用</span>
+                      <span x-show="!c.used" style="color:#22c55e;">可用</span>
+                    </td>
+                    <td x-text="new Date(c.created_at).toLocaleString()"></td>
                   </tr>
                 </template>
               </tbody>
@@ -568,7 +652,7 @@
               <thead><tr><th>名称</th><th>模式</th><th>类型</th><th>奖励</th><th>绑定任务</th><th>覆盖</th><th>操作</th></tr></thead>
               <tbody>
                 <template x-for="c in conditions" :key="c.id">
-                  <tr :style="(conditionOverrides[c.id] || '') === 'lock_in' ? 'background:#fef3c7;' : ((conditionOverrides[c.id] || '') === 'lock_out' ? 'background:#f5f5f5;opacity:0.6;' : '')">
+                  <tr :style="(conditionOverrides[c.id]?.override_type || '') === 'lock_in' ? 'background:#fef3c7;' : ((conditionOverrides[c.id]?.override_type || '') === 'lock_out' ? 'background:#f5f5f5;opacity:0.6;' : '')">
                     <td x-text="c.name"></td>
                     <td>
                       <span x-show="c.condition_type === 'acceptance'" style="background:#d6eaf8;color:#2980b9;padding:2px 6px;border-radius:4px;font-size:11px;">挑战</span>
@@ -583,14 +667,20 @@
                     </td>
                     <td x-text="(c.task_names || []).join(', ')"></td>
                     <td>
+                      <div style="display:flex;align-items:center;gap:4px;margin-bottom:4px;">
+                        <input type="range" x-model.number="overrideDurationDays" min="0" max="30" style="width:100px;" title="覆盖持续天数">
+                        <span style="font-size:0.7rem;color:#6b7280;min-width:32px;" x-text="overrideDurationDays > 0 ? overrideDurationDays + '天' : '永久'"></span>
+                      </div>
                       <button class="btn btn-sm"
-                              :style="(conditionOverrides[c.id] || '') === 'lock_in' ? 'background:#f59e0b;color:#fff;' : 'background:#e5e7eb;'"
+                              :style="(conditionOverrides[c.id]?.override_type || '') === 'lock_in' ? 'background:#f59e0b;color:#fff;' : 'background:#e5e7eb;'"
                               @click="setConditionOverride(c.id, 'lock_in')">🔒 锁定</button>
                       <button class="btn btn-sm" style="margin-left:2px;"
-                              :style="(conditionOverrides[c.id] || '') === 'lock_out' ? 'background:#6b7280;color:#fff;' : 'background:#e5e7eb;'"
+                              :style="(conditionOverrides[c.id]?.override_type || '') === 'lock_out' ? 'background:#6b7280;color:#fff;' : 'background:#e5e7eb;'"
                               @click="setConditionOverride(c.id, 'lock_out')">🚫 免疫</button>
-                      <button x-show="conditionOverrides[c.id]" class="btn btn-sm" style="margin-left:2px;background:#fca5a5;color:#fff;"
+                      <button x-show="conditionOverrides[c.id]?.override_type" class="btn btn-sm" style="margin-left:2px;background:#fca5a5;color:#fff;"
                               @click="setConditionOverride(c.id, 'none')">清除</button>
+                      <span x-show="conditionOverrides[c.id]?.override_type" style="font-size:0.68rem;color:#6b7280;margin-left:4px;"
+                            x-text="conditionOverrides[c.id]?.expires_at ? Math.max(0, Math.ceil((new Date(conditionOverrides[c.id].expires_at) - new Date()) / 86400000)) + '天' : '永久'"></span>
                     </td>
                     <td>
                       <button class="btn btn-sm btn-outline" style="margin-right:4px;" @click="editCondition(c)">编辑</button>
@@ -736,19 +826,22 @@ function adminApp() {
     // Boost tab
     boostTasks: [],
     boostOverrides: [],
-    boostForm: { task_id: '', override_type: 'lock_in', manual_multiplier: null },
+    boostForm: { task_id: '', override_type: 'lock_in', manual_multiplier: null, duration_days: 0 },
 
     // Conditions tab
     condTasks: [],
     conditions: [],
     conditionOverrides: {},
+    overrideDurationDays: 0,
     editingConditionId: null,
     condForm: { name: '', condition_type: 'acceptance', reward_type: 'bonus_points', bonus_value: null, multiplier_value: null, streak_days: null, subset_size: null, task_ids: [] },
 
-    // Surge tab
-    surgeRewards: [],
-    surgeOverrides: [],
-    surgeForm: { reward_id: '', override_type: 'lock_in', manual_rate: null },
+    // Pricing tab
+    pricingRewards: [],
+    pricingOverrides: [],
+    medalStats: [],
+    allCoupons: [],
+    pricingForm: { reward_id: '', override_type: 'lock_in', surge_peak_rate: 0.25, sale_trough_rate: 0.15, plateau_minutes: 0, partial_peak_factor: 1.0, duration_days: 0 },
 
     // Manage tab
     manageTasks: [],
@@ -897,7 +990,8 @@ function adminApp() {
     onActiveGroupChange() {
       if (!this.activeGroupId) return;
       if (this.tab === 'boost') this.loadBoostOverrides();
-      else if (this.tab === 'surge') this.loadSurgeOverrides();
+      else if (this.tab === 'pricing') this.loadPricingOverrides();
+      else if (this.tab === 'coupons') { this.loadMedalStats(); this.loadAllCoupons(); }
       else if (this.tab === 'conditions') this.loadConditions();
       else if (this.tab === 'manage') this.loadManageData();
     },
@@ -1165,6 +1259,7 @@ function adminApp() {
         group_id: parseInt(this.activeGroupId),
         task_id: parseInt(this.boostForm.task_id),
         override_type: this.boostForm.override_type,
+        duration_days: this.boostForm.duration_days || null,
       };
       if (this.boostForm.override_type === 'manual_multiplier') {
         body.manual_multiplier = parseFloat(this.boostForm.manual_multiplier);
@@ -1176,48 +1271,70 @@ function adminApp() {
       });
       const data = await resp.json();
       if (!resp.ok) { this.showToast(data.detail || '保存失败', 'error'); return; }
-      this.boostForm = { task_id: '', override_type: 'lock_in', manual_multiplier: null };
+      this.boostForm = { task_id: '', override_type: 'lock_in', manual_multiplier: null, duration_days: 0 };
       this.loadBoostOverrides();
       this.showToast('翻倍覆盖已更新');
     },
 
-    // === Surge ===
-    async loadSurgeOverrides() {
+    // === Pricing ===
+    async loadPricingOverrides() {
       if (!this.activeGroupId) return;
       const headers = { 'Authorization': 'Bearer ' + this.token };
       try {
-        const r = await fetch('/api/admin/surge-overrides?group_id=' + this.activeGroupId, { headers });
-        if (r.ok) { this.surgeOverrides = await r.json(); }
+        const r = await fetch('/api/admin/pricing-overrides?group_id=' + this.activeGroupId, { headers });
+        if (r.ok) { this.pricingOverrides = await r.json(); }
       } catch (e) { /* ignore */ }
       try {
         const r = await fetch('/api/admin/rewards?group_id=' + this.activeGroupId, { headers });
         if (r.ok) {
           const rewards = await r.json();
-          this.surgeRewards = Array.isArray(rewards) ? rewards : [];
+          this.pricingRewards = Array.isArray(rewards) ? rewards : [];
         }
       } catch (e) { /* ignore */ }
     },
 
-    async saveSurgeOverride() {
-      if (!this.surgeForm.reward_id) return this.showToast('请选择奖励', 'error');
+    async savePricingOverride() {
+      if (!this.pricingForm.reward_id) return this.showToast('请选择奖励', 'error');
       const body = {
         group_id: parseInt(this.activeGroupId),
-        reward_id: parseInt(this.surgeForm.reward_id),
-        override_type: this.surgeForm.override_type,
+        reward_id: parseInt(this.pricingForm.reward_id),
+        override_type: this.pricingForm.override_type,
+        duration_days: this.pricingForm.duration_days || null,
       };
-      if (this.surgeForm.override_type === 'manual_rate') {
-        body.manual_rate = parseFloat(this.surgeForm.manual_rate);
+      if (this.pricingForm.override_type === 'manual_params') {
+        body.surge_peak_rate = parseFloat(this.pricingForm.surge_peak_rate);
+        body.sale_trough_rate = parseFloat(this.pricingForm.sale_trough_rate);
+        body.plateau_minutes = parseInt(this.pricingForm.plateau_minutes);
+        body.partial_peak_factor = parseFloat(this.pricingForm.partial_peak_factor);
       }
-      const resp = await fetch('/api/admin/surge-overrides', {
+      const resp = await fetch('/api/admin/pricing-overrides', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + this.token },
         body: JSON.stringify(body),
       });
       const data = await resp.json();
       if (!resp.ok) { this.showToast(data.detail || '保存失败', 'error'); return; }
-      this.surgeForm = { reward_id: '', override_type: 'lock_in', manual_rate: null };
-      this.loadSurgeOverrides();
-      this.showToast('涨价覆盖已更新');
+      this.pricingForm = { reward_id: '', override_type: 'lock_in', surge_peak_rate: 0.25, sale_trough_rate: 0.15, plateau_minutes: 0, partial_peak_factor: 1.0, duration_days: 0 };
+      this.loadPricingOverrides();
+      this.showToast('定价覆盖已更新');
+    },
+
+    // === Medals & Coupons ===
+    async loadMedalStats() {
+      if (!this.activeGroupId) return;
+      const headers = { 'Authorization': 'Bearer ' + this.token };
+      try {
+        const r = await fetch('/api/admin/medals-stats?group_id=' + this.activeGroupId, { headers });
+        if (r.ok) this.medalStats = await r.json();
+      } catch (_) {}
+    },
+    async loadAllCoupons() {
+      if (!this.activeGroupId) return;
+      const headers = { 'Authorization': 'Bearer ' + this.token };
+      try {
+        const r = await fetch('/api/admin/coupons?group_id=' + this.activeGroupId, { headers });
+        if (r.ok) this.allCoupons = await r.json();
+      } catch (_) {}
     },
 
     // === Conditions ===
@@ -1241,7 +1358,7 @@ function adminApp() {
         if (r.ok) {
           const overrides = await r.json();
           this.conditionOverrides = {};
-          overrides.forEach(o => { this.conditionOverrides[o.condition_id] = o.override_type; });
+          overrides.forEach(o => { this.conditionOverrides[o.condition_id] = o; });
         }
       } catch (e) { /* 覆盖加载失败，保留旧数据 */ }
     },
@@ -1319,15 +1436,23 @@ function adminApp() {
     },
 
     async setConditionOverride(conditionId, overrideType) {
+      const body = {
+        group_id: this.activeGroupId,
+        condition_id: conditionId,
+        override_type: overrideType,
+        duration_days: this.overrideDurationDays || null,
+      };
       await fetch('/api/admin/condition-overrides', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + this.token },
-        body: JSON.stringify({ group_id: this.activeGroupId, condition_id: conditionId, override_type: overrideType }),
+        body: JSON.stringify(body),
       });
       if (overrideType === 'none') {
         delete this.conditionOverrides[conditionId];
       } else {
-        this.conditionOverrides[conditionId] = overrideType;
+        const days = this.overrideDurationDays || 0;
+        const expires = days > 0 ? new Date(Date.now() + days * 86400000).toISOString().split('T')[0] : null;
+        this.conditionOverrides[conditionId] = { override_type: overrideType, expires_at: expires };
       }
       this.showToast('条件覆盖已更新');
     },
@@ -1444,11 +1569,11 @@ function adminApp() {
 
     // Helpers
     tagClass(type) {
-      const m = { manual_edit: 'edit', manual_log_delete: 'delete', manual_log_add: 'add', task_complete: 'task', redeem_reward: 'reward', punish: 'punish', borrow_loan: 'add', repay_loan: 'spend', boost_override_change: 'edit', condition_override_change: 'edit' };
+      const m = { manual_edit: 'edit', manual_log_delete: 'delete', manual_log_add: 'add', task_complete: 'task', redeem_reward: 'reward', punish: 'punish', borrow_loan: 'add', repay_loan: 'spend', boost_override_change: 'edit', condition_override_change: 'edit', pricing_override_change: 'edit', surge_override_change: 'edit' };
       return m[type] || 'edit';
     },
     opTypeLabel(type) {
-      const m = { manual_edit: '修改积分', manual_log_delete: '积分变更(删)', manual_log_add: '积分变更(增)', task_complete: '完成任务', redeem_reward: '兑换奖励', punish: '惩罚', borrow_loan: '贷款借款', repay_loan: '贷款还款', boost_override_change: '翻倍覆盖', condition_override_change: '条件覆盖' };
+      const m = { manual_edit: '修改积分', manual_log_delete: '积分变更(删)', manual_log_add: '积分变更(增)', task_complete: '完成任务', redeem_reward: '兑换奖励', punish: '惩罚', borrow_loan: '贷款借款', repay_loan: '贷款还款', boost_override_change: '翻倍覆盖', condition_override_change: '条件覆盖', pricing_override_change: '定价覆盖', surge_override_change: '定价覆盖(旧)' };
       return m[type] || type;
     },
     showToast(msg, type) {

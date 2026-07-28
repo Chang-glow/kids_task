@@ -38,6 +38,13 @@ class AddRewardRequest(BaseModel):
 
 class RedeemRewardRequest(BaseModel):
     reward_id: int
+    coupon_id: int | None = None
+
+
+class ExchangeCouponRequest(BaseModel):
+    coupon_type: str
+    discount_pct: int
+    medal_cost: int
 
 
 class PunishRequest(BaseModel):

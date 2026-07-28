@@ -16,6 +16,7 @@ from api.routes.logs import router as logs_router
 from api.routes.children import router as children_router
 from api.routes.admin import router as admin_router
 from api.routes.loans import router as loan_router
+from api.routes.medals import router as medal_router
 
 app = FastAPI(title="儿童积分系统")
 
@@ -33,6 +34,7 @@ app.include_router(logs_router)
 app.include_router(children_router)
 app.include_router(admin_router)
 app.include_router(loan_router)
+app.include_router(medal_router)
 
 # 静态文件（开发环境）
 root_dir = os.path.join(os.path.dirname(__file__), "..")
@@ -46,7 +48,13 @@ if os.path.isfile(os.path.join(root_dir, "index.html")):
         return FileResponse(os.path.join(root_dir, "admin.html"))
 
     @app.get("/{full_path:path}")
-    def serve_spa(full_path: str):  # noqa: ARG001
+    def serve_spa(full_path: str):
+        file_path = os.path.realpath(os.path.join(root_dir, full_path))
+        root_real = os.path.realpath(root_dir)
+        if not file_path.startswith(root_real + os.sep) and file_path != root_real:
+            raise HTTPException(status_code=404)
+        if os.path.isfile(file_path):
+            return FileResponse(file_path)
         return FileResponse(os.path.join(root_dir, "index.html"))
 
 

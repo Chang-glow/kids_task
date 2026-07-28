@@ -180,6 +180,11 @@ def complete_task(req: CompleteTaskRequest, group_id: int = Depends(get_group_id
             streak_results = check_streak_on_complete(cur, effective_child, group_id, req.task_id, today, now)
             taskset_results = check_taskset_on_complete(cur, effective_child, group_id, req.task_id, today, now)
 
+        # 奖章：每完成一个任务奖励 1 枚
+        if effective_child:
+            from api.services.medal_service import award_medal
+            award_medal(cur, effective_child, group_id, today)
+
         cur.execute("UPDATE users SET total_points = total_points + %s WHERE id = 1", (final_points,))
 
         conn.commit()
