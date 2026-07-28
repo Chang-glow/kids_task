@@ -7,19 +7,20 @@ from api.dependencies import get_group_id
 from api.models.database import get_db
 from api.models.schemas import AddRewardRequest, RedeemRewardRequest
 from api.config import now_cst
-from api.services.surge_service import ensure_daily_surges, get_todays_surges
+from api.services.pricing_service import ensure_daily_pricing, get_todays_pricing
 
 router = APIRouter(prefix="/api/rewards", tags=["rewards"])
 
 
 @router.get("")
 def get_rewards(group_id: int = Depends(get_group_id)):
-    """获取奖励列表（按 group 过滤，积分升序），注入今日涨价信息。"""
+    """获取奖励列表（按 group 过滤，积分升序），注入当前时段定价信息。"""
     conn = get_db()
     cur = conn.cursor()
-    today = now_cst().date()
-    ensure_daily_surges(cur, group_id, today)
-    surges = get_todays_surges(cur, group_id, today)
+    now = now_cst()
+    today = now.date()
+    ensure_daily_pricing(cur, group_id, today)
+    pricing = get_todays_pricing(cur, group_id, today, now.hour, now.minute)
 
     cur.execute("SELECT * FROM rewards WHERE group_id = %s ORDER BY cost_points ASC", (group_id,))
     rewards = cur.fetchall()
@@ -29,20 +30,16 @@ def get_rewards(group_id: int = Depends(get_group_id)):
     result = []
     for r in rewards:
         d = dict(r)
-        info = surges.get(r["id"])
-        if info is not None:
+        info = pricing.get(r["id"])
+        if info is not None and not info.get("is_flat"):
             rate = info["rate"]
-            if info["type"] == "sale":
-                d["surge_rate"] = None
-                d["sale_rate"] = rate
-                d["surged_cost"] = max(1, round(r["cost_points"] * (1 - rate)))
-            else:
-                d["surge_rate"] = rate
-                d["sale_rate"] = None
+            d["pricing_rate"] = rate
+            if rate >= 0:
                 d["surged_cost"] = round(r["cost_points"] * (1 + rate))
+            else:
+                d["surged_cost"] = max(1, round(r["cost_points"] * (1 + rate)))
         else:
-            d["surge_rate"] = None
-            d["sale_rate"] = None
+            d["pricing_rate"] = 0.0
             d["surged_cost"] = None
         result.append(d)
     return result
@@ -88,25 +85,53 @@ def redeem_reward(req: RedeemRewardRequest, group_id: int = Depends(get_group_id
             raise HTTPException(status_code=400, detail="群组中没有孩子")
         current_points = child["total_points"]
 
-        # 检查今日涨降价
-        today = now_cst().date()
-        ensure_daily_surges(cur, group_id, today)
-        surges = get_todays_surges(cur, group_id, today)
-        info = surges.get(reward["id"])
-        if info is not None:
+        # 优惠券校验
+        coupon = None
+        if req.coupon_id is not None:
+            cur.execute(
+                "SELECT * FROM coupons WHERE id = %s AND child_id = %s AND group_id = %s AND used = false",
+                (req.coupon_id, child["id"], group_id),
+            )
+            coupon = cur.fetchone()
+            if not coupon:
+                raise HTTPException(status_code=400, detail="优惠券不存在或已使用")
+
+        # 检查今日时段定价
+        now = now_cst()
+        today = now.date()
+        ensure_daily_pricing(cur, group_id, today)
+        pricing = get_todays_pricing(cur, group_id, today, now.hour, now.minute)
+        info = pricing.get(reward["id"])
+        rate = 0.0
+        if info is not None and not info.get("is_flat"):
             rate = info["rate"]
-            if info["type"] == "sale":
-                cost = max(1, round(reward["cost_points"] * (1 - rate)))
-            else:
+            if rate >= 0:
                 cost = round(reward["cost_points"] * (1 + rate))
+            else:
+                cost = max(1, round(reward["cost_points"] * (1 + rate)))
         else:
             cost = reward["cost_points"]
+            rate = 0.0
+
+        # 应用优惠券调整有效价格
+        coupon_desc = ""
+        if coupon is not None:
+            from api.services.medal_service import compute_effective_price
+            effective_rate = compute_effective_price(
+                coupon["coupon_type"], coupon["discount_pct"], rate,
+            )
+            cost = max(1, round(reward["cost_points"] * (1 + effective_rate)))
+            if coupon["coupon_type"] == "anti_surge":
+                coupon_desc = f"（抗涨价券 -{coupon['discount_pct']}%）"
+            else:
+                coupon_desc = f"（抄底券 -{coupon['discount_pct']}%）"
 
         if current_points < cost:
             hint = ""
-            if info:
-                pct = int(info["rate"] * 100)
-                hint = f"（含{'降价' if info['type'] == 'sale' else '涨价'} {pct}%）"
+            if info is not None and not info.get("is_flat"):
+                pct = int(abs(info["rate"]) * 100)
+                direction = "涨价" if info["rate"] > 0 else "降价"
+                hint = f"（含{direction} {pct}%）"
             raise HTTPException(
                 status_code=400,
                 detail=f"积分不够啦，继续加油！💪 当前积分：{current_points}，需要：{cost}{hint}，还差：{cost - current_points}",
@@ -120,12 +145,12 @@ def redeem_reward(req: RedeemRewardRequest, group_id: int = Depends(get_group_id
             conn.rollback()
             raise HTTPException(status_code=400, detail="积分异常，兑换失败")
 
-        if info is not None:
-            pct = int(info["rate"] * 100)
-            label = "降价" if info["type"] == "sale" else "涨价"
-            description = f"兑换奖励「{reward['name']}」{reward['emoji']} → -{cost}分（原价{reward['cost_points']}，{label}{pct}%）"
+        if info is not None and not info.get("is_flat"):
+            pct = int(abs(info["rate"]) * 100)
+            direction = "涨价" if info["rate"] > 0 else "降价"
+            description = f"兑换奖励「{reward['name']}」{reward['emoji']} → -{cost}分（原价{reward['cost_points']}，{direction}{pct}%）{coupon_desc}"
         else:
-            description = f"兑换奖励「{reward['name']}」{reward['emoji']} → -{cost}分"
+            description = f"兑换奖励「{reward['name']}」{reward['emoji']} → -{cost}分{coupon_desc}"
         cur.execute(
             "INSERT INTO point_logs (action, amount, description, created_at, group_id, child_id)"
             " VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
@@ -137,9 +162,13 @@ def redeem_reward(req: RedeemRewardRequest, group_id: int = Depends(get_group_id
             "reward_name": reward["name"], "cost": cost,
             "log_id": log_id, "child_id": child["id"],
         }
-        if info is not None:
-            undo_data["rate"] = info["rate"]
-            undo_data["type"] = info["type"]
+        if info is not None and not info.get("is_flat"):
+            undo_data["pricing_rate"] = info["rate"]
+        if coupon is not None:
+            from api.services.medal_service import apply_coupon
+            apply_coupon(cur, coupon["id"], reward["id"], child["id"], group_id, now)
+            undo_data["coupon_id"] = coupon["id"]
+            undo_data["coupon_used"] = True
         cur.execute(
             "INSERT INTO undo_operations (group_id, child_id, operation_type, description, undo_data, created_at)"
             " VALUES (%s, %s, %s, %s, %s, %s)",
@@ -183,14 +212,15 @@ def delete_reward(reward_id: int, group_id: int = Depends(get_group_id)):
     return {"success": True}
 
 
-@router.get("/surges/today")
-def get_todays_surges_endpoint(group_id: int = Depends(get_group_id)):
-    """获取今日涨价映射 {reward_id: rate}。"""
+@router.get("/pricing/today")
+def get_todays_pricing_endpoint(group_id: int = Depends(get_group_id)):
+    """获取今日当前时段定价映射 {reward_id: {rate, is_flat}}。"""
     conn = get_db()
     cur = conn.cursor()
-    today = now_cst().date()
-    ensure_daily_surges(cur, group_id, today)
-    surges = get_todays_surges(cur, group_id, today)
+    now = now_cst()
+    today = now.date()
+    ensure_daily_pricing(cur, group_id, today)
+    pricing = get_todays_pricing(cur, group_id, today, now.hour, now.minute)
     conn.commit()
     conn.close()
-    return surges
+    return pricing

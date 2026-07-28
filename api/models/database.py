@@ -178,29 +178,36 @@ def init_db():
             updated_at TIMESTAMP NOT NULL DEFAULT NOW()
         )
     """)
+    cur.execute("ALTER TABLE daily_boost_overrides ADD COLUMN IF NOT EXISTS expires_at DATE")
 
-    # ---- 每日奖励涨价 ----
+    # ---- 每日奖励时段定价（替代旧 daily_reward_surges）----
     cur.execute("""
-        CREATE TABLE IF NOT EXISTS daily_reward_surges (
+        CREATE TABLE IF NOT EXISTS daily_reward_pricing (
             id SERIAL PRIMARY KEY,
             reward_id INTEGER REFERENCES rewards(id) ON DELETE CASCADE,
             group_id INTEGER REFERENCES family_groups(id),
-            surge_date DATE NOT NULL,
-            rate NUMERIC(4,2) NOT NULL,
-            type TEXT NOT NULL DEFAULT 'surge',
+            pricing_date DATE NOT NULL,
+            surge_peak_rate NUMERIC(4,2) NOT NULL DEFAULT 0.25,
+            sale_trough_rate NUMERIC(4,2) NOT NULL DEFAULT 0.15,
+            plateau_minutes INTEGER NOT NULL DEFAULT 0,
+            partial_peak_factor NUMERIC(3,2) NOT NULL DEFAULT 1.0,
+            is_flat BOOLEAN NOT NULL DEFAULT false,
             created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-            UNIQUE(reward_id, surge_date)
+            UNIQUE(reward_id, pricing_date)
         )
     """)
-    cur.execute("ALTER TABLE daily_reward_surges ADD COLUMN IF NOT EXISTS type TEXT NOT NULL DEFAULT 'surge'")
 
-    # ---- 涨价覆盖设置（admin）----
+    # ---- 定价覆盖设置（替代旧 daily_reward_surge_overrides）----
     cur.execute("""
-        CREATE TABLE IF NOT EXISTS daily_reward_surge_overrides (
+        CREATE TABLE IF NOT EXISTS daily_pricing_overrides (
             reward_id INTEGER PRIMARY KEY REFERENCES rewards(id) ON DELETE CASCADE,
             group_id INTEGER REFERENCES family_groups(id),
             override_type TEXT NOT NULL,
-            manual_rate NUMERIC(4,2),
+            manual_surge_peak NUMERIC(4,2),
+            manual_sale_trough NUMERIC(4,2),
+            manual_plateau INTEGER,
+            manual_partial_factor NUMERIC(3,2),
+            expires_at DATE,
             created_at TIMESTAMP NOT NULL DEFAULT NOW(),
             updated_at TIMESTAMP NOT NULL DEFAULT NOW()
         )
@@ -305,6 +312,7 @@ def init_db():
             UNIQUE(group_id, condition_id)
         )
     """)
+    cur.execute("ALTER TABLE condition_overrides ADD COLUMN IF NOT EXISTS expires_at DATE")
 
     # ---- 条件刷新记录（每日限额）----
     cur.execute("""
@@ -315,6 +323,33 @@ def init_db():
             refresh_count INTEGER NOT NULL DEFAULT 1,
             point_cost INTEGER NOT NULL DEFAULT 0,
             created_at TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+    """)
+
+    # ---- 每日奖章 ----
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS daily_medals (
+            id SERIAL PRIMARY KEY,
+            child_id INTEGER REFERENCES children(id) ON DELETE CASCADE,
+            group_id INTEGER REFERENCES family_groups(id),
+            medal_date DATE NOT NULL,
+            count INTEGER NOT NULL DEFAULT 0,
+            UNIQUE(child_id, medal_date)
+        )
+    """)
+
+    # ---- 优惠券 ----
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS coupons (
+            id SERIAL PRIMARY KEY,
+            child_id INTEGER REFERENCES children(id) ON DELETE CASCADE,
+            group_id INTEGER REFERENCES family_groups(id),
+            coupon_type TEXT NOT NULL CHECK (coupon_type IN ('anti_surge', 'pro_sale')),
+            discount_pct INTEGER NOT NULL CHECK (discount_pct > 0 AND discount_pct <= 100),
+            used BOOLEAN NOT NULL DEFAULT false,
+            reward_id INTEGER REFERENCES rewards(id),
+            created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+            used_at TIMESTAMP
         )
     """)
 

@@ -1,26 +1,40 @@
 """悬赏附加条件服务：选择、奖惩计算、CRUD。"""
 
 import random
-from datetime import date
+from datetime import date, timedelta
 from api.config import STAR_MULTIPLIERS
 
 
 def select_daily_conditions(cur, group_id: int, count: int = 4) -> list[dict]:
-    """随机选取当天激活的条件。排除已无待完成任务绑定的"死"条件。不足 count 则全选。
+    """选取当天条件，总数不超过 count。三级优先级：
 
-    尊重 condition_overrides 表：lock_in 强制入选，lock_out 强制排除。
+    1. lock_in 强制入选（admin 覆盖）
+    2. active streak 强制入选（跨天连续性 —— 已开始的打卡今天必须出现）
+    3. acceptance / task_set 随机填充剩余坑位
+
+    lock_out 强制排除。无未完成任务的"死"条件自动排除。
     """
-    # 读取覆盖设置
     cur.execute(
-        "SELECT condition_id, override_type FROM condition_overrides WHERE group_id = %s",
+        """SELECT condition_id, override_type FROM condition_overrides
+           WHERE group_id = %s AND (expires_at IS NULL OR expires_at >= CURRENT_DATE)""",
         (group_id,),
     )
     overrides = {r["condition_id"]: r["override_type"] for r in cur.fetchall()}
     locked_out = {cid for cid, otype in overrides.items() if otype == "lock_out"}
     locked_in_ids = {cid for cid, otype in overrides.items() if otype == "lock_in"}
 
+    # 正在进行的 streak（需要跨天 carry-over）
     cur.execute(
-        """SELECT c.id, c.name, c.reward_type, c.bonus_value, c.multiplier_value
+        "SELECT DISTINCT condition_id FROM condition_streak_progress"
+        " WHERE group_id = %s AND status = 'active'",
+        (group_id,),
+    )
+    active_streak_ids = {r["condition_id"] for r in cur.fetchall()}
+
+    # 所有有效条件（有未完成任务 + 未 lock_out）
+    cur.execute(
+        """SELECT c.id, c.name, c.reward_type, c.bonus_value, c.multiplier_value,
+                  c.condition_type
            FROM conditions c
            WHERE c.group_id = %s
              AND EXISTS (
@@ -31,19 +45,31 @@ def select_daily_conditions(cur, group_id: int, count: int = 4) -> list[dict]:
         (group_id,),
     )
     all_conds = [dict(r) for r in cur.fetchall()]
-
-    # 应用覆盖
     all_conds = [c for c in all_conds if c["id"] not in locked_out]
-    lock_in_conds = [c for c in all_conds if c["id"] in locked_in_ids]
-    remaining = [c for c in all_conds if c["id"] not in locked_in_ids]
 
+    # 按优先级分桶
+    lock_in_conds = [c for c in all_conds if c["id"] in locked_in_ids]
+    streak_conds = [c for c in all_conds
+                    if c["id"] in active_streak_ids and c["id"] not in locked_in_ids]
+    pool = [c for c in all_conds
+            if c["id"] not in locked_in_ids and c["id"] not in active_streak_ids
+            and c.get("condition_type", "acceptance") in (
+                "acceptance", "task_set_specific", "task_set_random",
+            )]
+
+    # lock_in 优先占坑
     if len(lock_in_conds) >= count:
         return lock_in_conds[:count]
 
-    need = count - len(lock_in_conds)
-    if len(remaining) <= need:
-        return lock_in_conds + remaining
-    return lock_in_conds + random.sample(remaining, need)
+    # active streak 接着占坑
+    if len(lock_in_conds) + len(streak_conds) >= count:
+        return (lock_in_conds + streak_conds)[:count]
+
+    # 剩余坑位从 acceptance/task_set 中随机填充
+    slots_left = count - len(lock_in_conds) - len(streak_conds)
+    if len(pool) <= slots_left:
+        return lock_in_conds + streak_conds + pool
+    return lock_in_conds + streak_conds + random.sample(pool, slots_left)
 
 
 def save_daily_conditions(cur, group_id: int, today: date, conditions: list[dict]) -> None:
@@ -71,9 +97,6 @@ def ensure_daily_conditions(cur, group_id: int, today: date, count: int = 4) -> 
         conds = select_daily_conditions(cur, group_id, count)
         if conds:
             save_daily_conditions(cur, group_id, today, conds)
-    # 自动延续活跃的 streak 条件和所有 task_set 条件
-    carry_over_active_streaks(cur, group_id, today)
-    carry_over_task_sets(cur, group_id, today)
 
 
 def get_task_conditions(cur, task_id: int, group_id: int, today: date) -> list[dict]:
@@ -395,33 +418,6 @@ def _insert_point_log(cur, action: str, amount: int, description: str, group_id:
     )
 
 
-# ---- Streak 自动延续 ----
-
-def carry_over_active_streaks(cur, group_id: int, today: date) -> None:
-    """把还在 active 状态的 streak 条件自动加入今日 daily_condition_selections。"""
-    cur.execute(
-        """INSERT INTO daily_condition_selections (group_id, condition_id, selection_date)
-           SELECT DISTINCT sp.group_id, sp.condition_id, %s
-           FROM condition_streak_progress sp
-           WHERE sp.group_id = %s AND sp.status = 'active'
-           ON CONFLICT (group_id, condition_id, selection_date) DO NOTHING""",
-        (today, group_id),
-    )
-
-
-def carry_over_task_sets(cur, group_id: int, today: date) -> None:
-    """把所有 task_set 条件自动加入今日 daily_condition_selections。"""
-    cur.execute(
-        """INSERT INTO daily_condition_selections (group_id, condition_id, selection_date)
-           SELECT c.group_id, c.id, %s
-           FROM conditions c
-           WHERE c.group_id = %s
-             AND c.condition_type IN ('task_set_specific', 'task_set_random')
-           ON CONFLICT (group_id, condition_id, selection_date) DO NOTHING""",
-        (today, group_id),
-    )
-
-
 def ensure_taskset_progress(cur, child_id: int, group_id: int, condition_id: int,
                             today: date) -> dict | None:
     """确保 task_set 进度行存在。对 task_set_random 在首次访问时随机抽取子集。
@@ -495,20 +491,27 @@ def get_condition_overrides(cur, group_id: int) -> list[dict]:
 
 
 def set_condition_override(cur, group_id: int, condition_id: int,
-                           override_type: str, now) -> dict:
-    """设置或清除条件覆盖。override_type='none' 时清除。"""
+                           override_type: str, now,
+                           duration_days: int | None = None) -> dict:
+    """设置或清除条件覆盖。override_type='none' 时清除。
+    duration_days: 持续天数，None 表示永久。
+    """
     if override_type == "none":
         cur.execute(
             "DELETE FROM condition_overrides WHERE group_id = %s AND condition_id = %s",
             (group_id, condition_id),
         )
     else:
+        expires = None
+        if duration_days is not None and duration_days > 0:
+            expires = now.date() + timedelta(days=duration_days)
         cur.execute(
-            """INSERT INTO condition_overrides (group_id, condition_id, override_type)
-               VALUES (%s, %s, %s)
+            """INSERT INTO condition_overrides (group_id, condition_id, override_type, expires_at)
+               VALUES (%s, %s, %s, %s)
                ON CONFLICT (group_id, condition_id)
-               DO UPDATE SET override_type = EXCLUDED.override_type""",
-            (group_id, condition_id, override_type),
+               DO UPDATE SET override_type = EXCLUDED.override_type,
+                             expires_at = EXCLUDED.expires_at""",
+            (group_id, condition_id, override_type, expires),
         )
     return {"success": True}
 
@@ -608,27 +611,13 @@ def refresh_daily_conditions(cur, group_id: int, child_id: int, today: date, now
                  )""",
             (group_id, today, group_id, today),
         )
-        cur.execute(
-            """DELETE FROM condition_task_set_progress
-               WHERE group_id = %s AND selection_date = %s
-                 AND condition_id NOT IN (
-                   SELECT DISTINCT condition_id FROM child_condition_acceptances
-                   WHERE group_id = %s AND acceptance_date = %s AND accepted = true
-                 )""",
-            (group_id, today, group_id, today),
-        )
-        cur.execute(
-            "SELECT COUNT(*) FROM daily_condition_selections WHERE group_id = %s AND selection_date = %s",
-            (group_id, today),
-        )
-        existing = cur.fetchone()["count"]
-        needed = max(0, 4 - existing)
-        if needed > 0:
-            conds = select_daily_conditions(cur, group_id, needed)
-            if conds:
-                save_daily_conditions(cur, group_id, today, conds)
-        carry_over_active_streaks(cur, group_id, today)
-        carry_over_task_sets(cur, group_id, today)
+        conds = select_daily_conditions(cur, group_id, 4)
+        if conds:
+            cur.execute(
+                "DELETE FROM daily_condition_selections WHERE group_id = %s AND selection_date = %s",
+                (group_id, today),
+            )
+            save_daily_conditions(cur, group_id, today, conds)
 
     new_count = refresh_count + 1
     free_left = max(0, 2 - new_count)

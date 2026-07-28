@@ -4,7 +4,7 @@ FastAPI 入口 — 组装应用，本地开发 + Vercel 部署共用。
 
 import os
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 

@@ -72,6 +72,7 @@ def select_daily_boosts(cur, group_id: int, today: date, count: int = 3) -> list
     """
     为群组选出当天翻倍任务。
     优先 lock_in，排除 lock_out，其余按衰减权重随机抽选。
+    自动过滤已过期的覆盖（expires_at < today）。
     """
     cur.execute(
         "SELECT id, base_points FROM tasks WHERE group_id = %s AND status = 'pending'",
@@ -82,8 +83,10 @@ def select_daily_boosts(cur, group_id: int, today: date, count: int = 3) -> list
         return []
 
     cur.execute(
-        "SELECT task_id, override_type, manual_multiplier FROM daily_boost_overrides WHERE group_id = %s",
-        (group_id,),
+        """SELECT task_id, override_type, manual_multiplier
+           FROM daily_boost_overrides WHERE group_id = %s
+           AND (expires_at IS NULL OR expires_at >= %s)""",
+        (group_id, today),
     )
     overrides = {}
     for r in cur.fetchall():
@@ -175,18 +178,25 @@ def get_boost_overrides(cur, group_id: int) -> list[dict]:
 def set_boost_override(
     cur, group_id: int, task_id: int, override_type: str,
     manual_multiplier: float | None, now,
+    duration_days: int | None = None,
 ) -> dict:
-    """设置或清除翻倍覆盖。override_type = 'none' 时清除。"""
+    """设置或清除翻倍覆盖。override_type = 'none' 时清除。
+    duration_days: 持续天数，None 表示永久。
+    """
     if override_type == "none":
         cur.execute("DELETE FROM daily_boost_overrides WHERE task_id = %s", (task_id,))
     else:
+        expires = None
+        if duration_days is not None and duration_days > 0:
+            expires = now.date() + timedelta(days=duration_days)
         mult = manual_multiplier if override_type == "manual_multiplier" else None
         cur.execute(
-            "INSERT INTO daily_boost_overrides (task_id, group_id, override_type, manual_multiplier, updated_at)"
-            " VALUES (%s, %s, %s, %s, %s)"
+            "INSERT INTO daily_boost_overrides (task_id, group_id, override_type, manual_multiplier, expires_at, updated_at)"
+            " VALUES (%s, %s, %s, %s, %s, %s)"
             " ON CONFLICT (task_id) DO UPDATE SET override_type = EXCLUDED.override_type,"
-            " manual_multiplier = EXCLUDED.manual_multiplier, updated_at = EXCLUDED.updated_at",
-            (task_id, group_id, override_type, mult, now),
+            " manual_multiplier = EXCLUDED.manual_multiplier, expires_at = EXCLUDED.expires_at,"
+            " updated_at = EXCLUDED.updated_at",
+            (task_id, group_id, override_type, mult, expires, now),
         )
     return {"success": True}
 

@@ -497,13 +497,41 @@ def admin_undo(operation_id: int, _token: str = Depends(_require_admin)):
                 set_condition_override(cur, op["group_id"], undo_data["condition_id"], "none", now)
 
         elif op_type == "surge_override_change":
-            from api.services.surge_service import set_surge_override
+            # 兼容旧版 surge override 撤回记录
+            from api.services.pricing_service import set_pricing_override
             prev = undo_data.get("previous_override")
             if prev:
-                set_surge_override(cur, op["group_id"], prev["reward_id"],
-                                   prev["override_type"], prev.get("manual_rate"), now)
+                # 将旧 manual_rate 映射为新 manual_params
+                mp = None
+                if prev.get("manual_rate") is not None:
+                    mr = float(prev["manual_rate"])
+                    if mr > 0:
+                        mp = {"surge_peak_rate": abs(mr), "sale_trough_rate": 0.15,
+                              "plateau_minutes": 0, "partial_peak_factor": 1.0}
+                    else:
+                        mp = {"surge_peak_rate": 0.25, "sale_trough_rate": abs(mr),
+                              "plateau_minutes": 0, "partial_peak_factor": 1.0}
+                set_pricing_override(cur, op["group_id"], prev["reward_id"],
+                                     prev["override_type"], mp, now)
             else:
-                set_surge_override(cur, op["group_id"], undo_data["reward_id"], "none", None, now)
+                set_pricing_override(cur, op["group_id"], undo_data["reward_id"], "none", None, now)
+
+        elif op_type == "pricing_override_change":
+            from api.services.pricing_service import set_pricing_override
+            prev = undo_data.get("previous_override")
+            if prev:
+                mp = None
+                if prev.get("override_type") == "manual_params":
+                    mp = {
+                        "surge_peak_rate": prev.get("manual_surge_peak"),
+                        "sale_trough_rate": prev.get("manual_sale_trough"),
+                        "plateau_minutes": prev.get("manual_plateau"),
+                        "partial_peak_factor": prev.get("manual_partial_factor"),
+                    }
+                set_pricing_override(cur, op["group_id"], prev["reward_id"],
+                                     prev["override_type"], mp, now)
+            else:
+                set_pricing_override(cur, op["group_id"], undo_data["reward_id"], "none", None, now)
 
         elif op_type == "task_edit":
             cur.execute(
@@ -754,6 +782,7 @@ def admin_set_boost_override(req: dict, _token: str = Depends(_require_admin)):
     task_id = req.get("task_id")
     override_type = req.get("override_type", "")
     manual_multiplier = req.get("manual_multiplier")
+    duration_days = req.get("duration_days")
 
     if not group_id or not task_id:
         raise HTTPException(status_code=400, detail="缺少 group_id 或 task_id")
@@ -775,7 +804,8 @@ def admin_set_boost_override(req: dict, _token: str = Depends(_require_admin)):
 
         now = now_cst()
         result = set_boost_override(cur, group_id, task_id, override_type,
-                                    float(manual_multiplier) if manual_multiplier else None, now)
+                                    float(manual_multiplier) if manual_multiplier else None, now,
+                                    duration_days=int(duration_days) if duration_days else None)
         cur.execute(
             "INSERT INTO undo_operations (group_id, operation_type, description, undo_data, created_at)"
             " VALUES (%s, %s, %s, %s, %s)",
@@ -801,42 +831,47 @@ def admin_set_boost_override(req: dict, _token: str = Depends(_require_admin)):
         conn.close()
 
 
-# ---- 涨价管理 ----
+# ---- 时段定价管理 ----
 
 
-@router.get("/surge-overrides")
-def admin_get_surge_overrides(group_id: int, _token: str = Depends(_require_admin)):
-    """列出群组的所有涨价覆盖设置。"""
-    from api.services.surge_service import get_surge_overrides
+@router.get("/pricing-overrides")
+def admin_get_pricing_overrides(group_id: int, _token: str = Depends(_require_admin)):
+    """列出群组的所有定价覆盖设置。"""
+    from api.services.pricing_service import get_pricing_overrides
     conn = get_db()
     cur = conn.cursor()
-    rows = get_surge_overrides(cur, group_id)
+    rows = get_pricing_overrides(cur, group_id)
     conn.close()
     return rows
 
 
-@router.post("/surge-overrides")
-def admin_set_surge_override(req: dict, _token: str = Depends(_require_admin)):
-    """设置涨价覆盖。"""
-    from api.services.surge_service import set_surge_override, get_surge_overrides
+@router.post("/pricing-overrides")
+def admin_set_pricing_override(req: dict, _token: str = Depends(_require_admin)):
+    """设置时段定价覆盖。"""
+    from api.services.pricing_service import set_pricing_override, get_pricing_overrides
     group_id = req.get("group_id")
     reward_id = req.get("reward_id")
     override_type = req.get("override_type", "")
-    manual_rate = req.get("manual_rate")
+    duration_days = req.get("duration_days")
 
     if not group_id or not reward_id:
         raise HTTPException(status_code=400, detail="缺少 group_id 或 reward_id")
-    if override_type not in ("lock_in", "lock_out", "manual_rate", "none"):
+    if override_type not in ("lock_in", "lock_out", "manual_params", "none"):
         raise HTTPException(status_code=400, detail="override_type 无效")
-    if override_type == "manual_rate":
-        mr = float(manual_rate or 0)
-        if mr == 0 or (abs(mr) < 0.10 or abs(mr) > 0.50):
-            raise HTTPException(status_code=400, detail="manual_rate 不合法：涨价 0.10-0.50，降价 -0.25 至 -0.10")
+
+    manual_params = None
+    if override_type == "manual_params":
+        manual_params = {
+            "surge_peak_rate": req.get("surge_peak_rate"),
+            "sale_trough_rate": req.get("sale_trough_rate"),
+            "plateau_minutes": req.get("plateau_minutes"),
+            "partial_peak_factor": req.get("partial_peak_factor"),
+        }
 
     conn = get_db()
     cur = conn.cursor()
     try:
-        old_overrides = get_surge_overrides(cur, group_id)
+        old_overrides = get_pricing_overrides(cur, group_id)
         old_override = next((o for o in old_overrides if o["reward_id"] == reward_id), None)
         if old_override:
             for k in list(old_override):
@@ -844,17 +879,18 @@ def admin_set_surge_override(req: dict, _token: str = Depends(_require_admin)):
                     old_override[k] = old_override[k].isoformat()
 
         now = now_cst()
-        result = set_surge_override(cur, group_id, reward_id, override_type,
-                                     float(manual_rate) if manual_rate else None, now)
+        result = set_pricing_override(cur, group_id, reward_id, override_type,
+                                      manual_params, now,
+                                      duration_days=int(duration_days) if duration_days else None)
         cur.execute(
             "INSERT INTO undo_operations (group_id, operation_type, description, undo_data, created_at)"
             " VALUES (%s, %s, %s, %s, %s)",
-            (group_id, "surge_override_change",
-             f"涨价覆盖: reward_id={reward_id} {override_type}",
+            (group_id, "pricing_override_change",
+             f"定价覆盖: reward_id={reward_id} {override_type}",
              json.dumps({"reward_id": reward_id, "previous_override": old_override}), now),
         )
         cur.execute(
-            "DELETE FROM daily_reward_surges WHERE group_id = %s AND surge_date = %s",
+            "DELETE FROM daily_reward_pricing WHERE group_id = %s AND pricing_date = %s",
             (group_id, now.date()),
         )
         conn.commit()
@@ -1100,6 +1136,7 @@ def admin_set_condition_override(req: dict, _token: str = Depends(_require_admin
     group_id = req.get("group_id")
     condition_id = req.get("condition_id")
     override_type = req.get("override_type", "")
+    duration_days = req.get("duration_days")
 
     if not group_id or not condition_id:
         raise HTTPException(status_code=400, detail="缺少 group_id 或 condition_id")
@@ -1118,7 +1155,8 @@ def admin_set_condition_override(req: dict, _token: str = Depends(_require_admin
                     old_override[k] = old_override[k].isoformat()
 
         now = now_cst()
-        result = set_condition_override(cur, group_id, condition_id, override_type, now)
+        result = set_condition_override(cur, group_id, condition_id, override_type, now,
+                                         duration_days=int(duration_days) if duration_days else None)
 
         import json
         cur.execute(
