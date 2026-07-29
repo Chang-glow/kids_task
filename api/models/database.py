@@ -344,14 +344,17 @@ def init_db():
             id SERIAL PRIMARY KEY,
             child_id INTEGER REFERENCES children(id) ON DELETE CASCADE,
             group_id INTEGER REFERENCES family_groups(id),
-            coupon_type TEXT NOT NULL CHECK (coupon_type IN ('anti_surge', 'pro_sale')),
-            discount_pct INTEGER NOT NULL CHECK (discount_pct > 0 AND discount_pct <= 100),
+            medal_count INTEGER NOT NULL DEFAULT 5,
             used BOOLEAN NOT NULL DEFAULT false,
             reward_id INTEGER REFERENCES rewards(id),
             created_at TIMESTAMP NOT NULL DEFAULT NOW(),
             used_at TIMESTAMP
         )
     """)
+    # 迁移：旧字段清理（coupon_type, discount_pct 已废弃，统一为 medal_count）
+    cur.execute("ALTER TABLE coupons DROP COLUMN IF EXISTS coupon_type")
+    cur.execute("ALTER TABLE coupons DROP COLUMN IF EXISTS discount_pct")
+    cur.execute("ALTER TABLE coupons ADD COLUMN IF NOT EXISTS medal_count INTEGER NOT NULL DEFAULT 5")
 
     # ---- 兼容旧 users 表（只读，不再写入）----
     cur.execute("""

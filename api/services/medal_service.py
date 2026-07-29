@@ -1,23 +1,17 @@
 """奖章 + 优惠券服务：完成任务获得奖章 → 兑换优惠券 → 兑换奖励时使用。"""
 
 
-def compute_effective_price(coupon_type: str, discount_pct: int,
-                            pricing_rate: float) -> float:
-    """纯函数：根据优惠券类型和当前定价率，计算有效定价率。
+def compute_effective_price(medal_count: int, pricing_rate: float) -> float:
+    """纯函数：每枚奖章 = 2% 涨降价额度，从当前定价率中扣除。
 
-    anti_surge: 仅在 pricing_rate > 0 时生效，按 discount_pct 抵消涨价（最低到 0）
-    pro_sale:   强制应用 -(discount_pct/100) 降价率
+    effective_rate = pricing_rate - (medal_count * 0.02)
+
+    自然统一了旧 anti_surge 和 pro_sale 逻辑：
+    - 涨价时（rate > 0）：抵消涨价，奖章够多可转为降价
+    - 平价时（rate = 0）：直接产生降价
+    - 降价时（rate < 0）：进一步加大降价力度
     """
-    if coupon_type == "anti_surge":
-        if pricing_rate > 0:
-            reduced = pricing_rate * (1 - discount_pct / 100)
-            return max(0.0, reduced)
-        return pricing_rate
-
-    if coupon_type == "pro_sale":
-        return -(discount_pct / 100)
-
-    return pricing_rate
+    return pricing_rate - (medal_count * 0.02)
 
 
 # ---- 奖章 ----
@@ -47,34 +41,37 @@ def get_today_medals(cur, child_id: int, group_id: int, today) -> int:
 
 # ---- 优惠券 ----
 
-def exchange_coupon(cur, child_id: int, group_id: int, coupon_type: str,
-                    discount_pct: int, medal_cost: int, now) -> dict:
-    """用奖章兑换优惠券。校验余额后扣减奖章，创建优惠券记录。"""
-    if coupon_type not in ("anti_surge", "pro_sale"):
-        raise ValueError("coupon_type 必须是 anti_surge 或 pro_sale")
-    if discount_pct < 1 or discount_pct > 100:
-        raise ValueError("discount_pct 必须在 1-100 之间")
-    if medal_cost < 1:
-        raise ValueError("medal_cost 必须大于 0")
+def exchange_coupon(cur, child_id: int, group_id: int,
+                    medal_count: int, now) -> dict:
+    """用奖章兑换优惠券。5 章起兑，每枚奖章 = 2% 涨降价额度。"""
+    if medal_count < 5:
+        raise ValueError("至少需要 5 枚奖章才能兑换优惠券")
+    if medal_count < 1:
+        raise ValueError("奖章数量必须大于 0")
 
     today = now.date()
     balance = get_today_medals(cur, child_id, group_id, today)
-    if balance < medal_cost:
-        raise ValueError(f"奖章不足（当前 {balance}，需要 {medal_cost}）")
+    if balance < medal_count:
+        raise ValueError(f"奖章不足（当前 {balance}，需要 {medal_count}）")
 
     cur.execute(
         "UPDATE daily_medals SET count = count - %s"
         " WHERE child_id = %s AND medal_date = %s",
-        (medal_cost, child_id, today),
+        (medal_count, child_id, today),
     )
 
     cur.execute(
-        """INSERT INTO coupons (child_id, group_id, coupon_type, discount_pct, created_at)
-           VALUES (%s, %s, %s, %s, %s) RETURNING id""",
-        (child_id, group_id, coupon_type, discount_pct, now),
+        """INSERT INTO coupons (child_id, group_id, medal_count, created_at)
+           VALUES (%s, %s, %s, %s) RETURNING id""",
+        (child_id, group_id, medal_count, now),
     )
     coupon_id = cur.fetchone()["id"]
-    return {"success": True, "coupon_id": coupon_id, "medals_remaining": balance - medal_cost}
+    return {
+        "success": True,
+        "coupon_id": coupon_id,
+        "medals_remaining": balance - medal_count,
+        "adjustment_pct": medal_count * 2,
+    }
 
 
 def get_child_coupons(cur, child_id: int, group_id: int) -> list[dict]:

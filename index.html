@@ -806,59 +806,9 @@ input:focus, select:focus {
             <div class="progress-bar"><div class="progress-fill" :style="'width:' + progressPct + '%'"></div></div>
           </div>
         </div>
-        <div class="points-icon">🏆</div>
-      </div>
-
-      <!-- 奖章 & 优惠券 -->
-      <div class="card" style="margin-bottom:20px;">
-        <div class="card-title" style="display:flex;align-items:center;justify-content:space-between;">
-          <span>🏅 今日奖章: <strong x-text="medalsToday"></strong> 枚</span>
-          <button class="btn btn-sm" @click="showCouponWallet = !showCouponWallet">
-            <span x-show="!showCouponWallet">🎟️ 优惠券仓库</span>
-            <span x-show="showCouponWallet">🙈 收起</span>
-          </button>
-        </div>
-
-        <!-- 优惠券仓库 -->
-        <div x-show="showCouponWallet" style="margin-top:12px;">
-          <div style="padding:12px;background:#f8fafc;border-radius:12px;margin-bottom:12px;">
-            <div class="form-row" style="align-items:end;">
-              <div class="form-group" style="flex:1">
-                <label>类型</label>
-                <select x-model="couponForm.coupon_type">
-                  <option value="anti_surge">🛡️ 抗涨价券</option>
-                  <option value="pro_sale">💰 抄底券</option>
-                </select>
-              </div>
-              <div class="form-group" style="flex:1">
-                <label>折扣 %</label>
-                <input type="number" x-model.number="couponForm.discount_pct" min="1" max="100">
-              </div>
-              <div class="form-group" style="flex:1">
-                <label>消耗奖章</label>
-                <input type="number" x-model.number="couponForm.medal_cost" min="1">
-              </div>
-              <div class="form-group" style="justify-content:flex-end">
-                <label>&nbsp;</label>
-                <button class="btn btn-orange btn-sm" @click="exchangeCoupon()">🎟️ 兑换</button>
-              </div>
-            </div>
-            <div style="font-size:12px;color:#64748b;margin-top:4px;">
-              🛡️ 抗涨价：抵消涨价幅度 | 💰 抄底：强制按折扣%降价
-            </div>
-          </div>
-          <template x-if="!coupons.length">
-            <div class="empty"><span class="ei">🎟️</span>还没有优惠券，用奖章兑换吧！</div>
-          </template>
-          <template x-for="c in coupons" :key="c.id">
-            <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:#f1f5f9;border-radius:8px;margin-bottom:6px;">
-              <span>
-                <span x-text="c.coupon_type === 'anti_surge' ? '🛡️ 抗涨价' : '💰 抄底'"></span>
-                <strong x-text="' -' + c.discount_pct + '%'"></strong>
-              </span>
-              <button class="btn btn-sm btn-danger" @click="deleteCoupon(c.id)">🗑️</button>
-            </div>
-          </template>
+        <div class="points-icon" style="display:flex;flex-direction:column;align-items:center;gap:4px;">
+          <span style="font-size:2rem;">🏆</span>
+          <span style="font-size:0.8rem;font-weight:900;color:rgba(255,255,255,0.9);white-space:nowrap;">🏅 <span x-text="medalsToday"></span> 章</span>
         </div>
       </div>
 
@@ -1185,7 +1135,15 @@ input:focus, select:focus {
 
           <!-- 奖励网格 -->
           <div class="reward-grid">
-            <template x-if="!rewards.length">
+            <!-- 优惠券兑换（常设第一位） -->
+            <div class="reward-item" style="background:linear-gradient(135deg, #e0f2fe, #bae6fd);border-color:#38bdf8;border-width:3px;box-shadow:0 0 16px rgba(56,189,248,0.3);">
+              <div class="r-emoji">🎟️</div>
+              <div class="r-name" style="color:#0369a1;">优惠券兑换</div>
+              <div class="r-cost" style="color:#0284c7;">🏅 5 章起兑</div>
+              <button class="btn btn-sm" style="background:linear-gradient(135deg,#38bdf8,#0ea5e9);color:white;box-shadow:0 4px 12px rgba(14,165,233,0.35);" @click="openCouponExchange()">🎟️ 兑换</button>
+            </div>
+
+            <template x-if="!rewards.length && !coupons.length">
               <div class="empty" style="grid-column:1/-1"><span class="ei">🎁</span>还没有奖励，快来设定吧！</div>
             </template>
             <template x-for="r in rewards" :key="r.id">
@@ -1220,6 +1178,23 @@ input:focus, select:focus {
               </div>
             </template>
           </div>
+        </div>
+
+        <!-- 优惠券仓库 -->
+        <div class="card" style="margin-top:20px;" x-show="coupons.length > 0">
+          <div class="card-title">🎟️ 我的优惠券</div>
+          <template x-for="c in coupons" :key="c.id">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:linear-gradient(135deg,#e0f2fe,#bae6fd);border-radius:12px;margin-bottom:8px;border:2px solid #7dd3fc;">
+              <div>
+                <span style="font-weight:900;color:#0369a1;" x-text="'🎟️ ' + c.medal_count + ' 章'"></span>
+                <span style="font-size:0.85rem;color:#0284c7;font-weight:700;margin-left:8px;" x-text="'(额度 ' + (c.medal_count * 2) + '%)'"></span>
+              </div>
+              <div style="display:flex;gap:6px;">
+                <button class="btn btn-sm" style="background:linear-gradient(135deg,#38bdf8,#0ea5e9);color:white;" @click="openCouponUse(c)">🎯 使用</button>
+                <button class="btn btn-sm btn-danger" @click="deleteCoupon(c.id)">🗑️</button>
+              </div>
+            </div>
+          </template>
         </div>
 
       </div><!-- grid-2 结束 -->
@@ -1389,6 +1364,82 @@ input:focus, select:focus {
   </div>
 </div>
 
+<!-- 优惠券兑换弹窗 -->
+<div class="modal-overlay" :class="{ open: couponModalOpen }">
+  <div class="modal">
+    <h3>🎟️ 兑换优惠券</h3>
+    <div style="font-size:0.9rem;color:#718096;font-weight:700;margin:8px 0;">每枚奖章 = 2% 涨降价额度，5 章起兑</div>
+    <div style="font-size:1.1rem;font-weight:900;color:#0369a1;margin:12px 0;">🏅 当前拥有: <span x-text="medalsToday"></span> 枚奖章</div>
+
+    <div style="display:flex;align-items:center;justify-content:center;gap:16px;margin:20px 0;">
+      <button class="btn btn-sm" style="background:#e2e8f0;color:#4a5568;font-size:1.3rem;min-height:44px;width:44px;justify-content:center;"
+              @click="couponExchangeCount = Math.max(5, couponExchangeCount - 1)"
+              :disabled="couponExchangeCount <= 5">−</button>
+      <div style="text-align:center;">
+        <input type="number" x-model.number="couponExchangeCount"
+               style="width:80px;text-align:center;font-size:1.5rem;font-weight:900;"
+               min="5" :max="medalsToday">
+        <div style="font-size:0.8rem;color:#718096;font-weight:700;">兑换数量</div>
+      </div>
+      <button class="btn btn-sm" style="background:#e2e8f0;color:#4a5568;font-size:1.3rem;min-height:44px;width:44px;justify-content:center;"
+              @click="couponExchangeCount = Math.min(medalsToday, couponExchangeCount + 1)"
+              :disabled="couponExchangeCount >= medalsToday">+</button>
+    </div>
+
+    <div class="points-preview" style="background:linear-gradient(135deg,#e0f2fe,#bae6fd);color:#0369a1;">
+      获得涨降价额度: <span style="font-size:1.5rem;font-weight:900;" x-text="couponExchangeCount * 2 + '%'"></span>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn btn-danger" @click="couponModalOpen = false">取消</button>
+      <button class="btn btn-purple" @click="doExchangeCoupon()"
+              :disabled="couponExchangeCount < 5 || couponExchangeCount > medalsToday">✅ 确认兑换</button>
+    </div>
+  </div>
+</div>
+
+<!-- 优惠券使用弹窗（选择奖励） -->
+<div class="modal-overlay" :class="{ open: couponUseModalOpen }">
+  <div class="modal" style="max-width:480px;">
+    <h3>🎟️ 使用优惠券</h3>
+    <div style="font-size:0.95rem;font-weight:900;color:#0369a1;margin:8px 0;"
+         x-text="activeCoupon ? (activeCoupon.medal_count + ' 章 → 额度 ' + (activeCoupon.medal_count * 2) + '%') : ''"></div>
+    <div style="font-size:0.85rem;color:#718096;font-weight:700;margin-bottom:12px;">选择要应用的奖励：</div>
+
+    <div style="max-height:360px;overflow-y:auto;">
+      <template x-if="!rewards.length">
+        <div class="empty">🎁 还没有奖励，先去添加吧！</div>
+      </template>
+      <template x-for="r in rewards" :key="r.id">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;margin-bottom:8px;background:#f8fafc;border-radius:12px;border:2px solid #e2e8f0;cursor:pointer;transition:all 0.15s;"
+             @click="useCouponOnReward(r)"
+             @mouseenter="$el.style.borderColor='#38bdf8';$el.style.background='#f0f9ff'"
+             @mouseleave="$el.style.borderColor='#e2e8f0';$el.style.background='#f8fafc'">
+          <div>
+            <span x-text="r.emoji" style="font-size:1.5rem;"></span>
+            <span x-text="r.name" style="font-weight:800;color:#1a202c;margin-left:8px;"></span>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-size:0.85rem;font-weight:800;color:#4a5568;">
+              🪙 原价 <span x-text="r.cost_points"></span> 分
+            </div>
+            <div x-show="r.pricing_rate !== 0" style="font-size:0.78rem;color:#718096;">
+              当前: <span :style="'color:' + (r.pricing_rate > 0 ? '#ef4444' : '#22c55e')"
+                        x-text="(r.pricing_rate > 0 ? '+' : '') + Math.round(r.pricing_rate * 100) + '%'"></span>
+            </div>
+            <div style="font-size:0.82rem;font-weight:900;color:#0369a1;"
+                 x-text="'使用后: ' + couponAdjustedCost(r) + ' 分'"></div>
+          </div>
+        </div>
+      </template>
+    </div>
+
+    <div class="modal-actions" style="margin-top:16px;">
+      <button class="btn btn-danger" @click="couponUseModalOpen = false; activeCoupon = null;">取消</button>
+    </div>
+  </div>
+</div>
+
 <!-- Toast 容器 -->
 <div class="toast-container">
   <template x-for="(toast, idx) in toasts" :key="idx">
@@ -1470,8 +1521,10 @@ function app() {
     // -- medals & coupons --
     medalsToday: 0,
     coupons: [],
-    showCouponWallet: false,
-    couponForm: { coupon_type: 'anti_surge', discount_pct: 50, medal_cost: 1 },
+    couponExchangeCount: 5,
+    couponModalOpen: false,
+    couponUseModalOpen: false,
+    activeCoupon: null,
 
     // -- stats / daily report --
     statsCache: null,
@@ -1790,7 +1843,7 @@ function app() {
         const res = await this.api(`/tasks/complete`, 'POST', body);
         this.closeModal();
         this.toast(res.message);
-        await Promise.all([this.loadTasks(), this.loadGroupInfo(), this.loadLogs(true)]);
+        await Promise.all([this.loadTasks(), this.loadGroupInfo(), this.loadLogs(true), this.loadMedals()]);
       } catch (e) {
         this.toast(e.message, 'error');
       }
@@ -1830,25 +1883,12 @@ function app() {
         if (r.pricing_rate < 0) hint = `（已降价 ${Math.round(Math.abs(r.pricing_rate) * 100)}%）`;
         return this.toast(`积分不够啦，继续加油！💪 还差 ${cost - this.currentPoints} 分${hint}`, 'error');
       }
-      // 优惠券选择
-      let couponId = null;
-      if (this.coupons.length > 0) {
-        const opts = this.coupons.map(c => {
-          const label = c.coupon_type === 'anti_surge' ? '🛡️ 抗涨价' : '💰 抄底';
-          return `${label} -${c.discount_pct}% (id:${c.id})`;
-        });
-        const choice = prompt(`你有 ${this.coupons.length} 张优惠券可用：\n${opts.join('\n')}\n\n输入优惠券 ID 使用，留空跳过：`);
-        if (choice) couponId = parseInt(choice);
-      }
       let confirmMsg = `确定用 ${cost} 积分兑换「${r.name}」吗？`;
       if (r.pricing_rate > 0) confirmMsg += `\n⚠️ 原价 ${r.cost_points} 分，当前涨价 ${Math.round(r.pricing_rate * 100)}%`;
       if (r.pricing_rate < 0) confirmMsg += `\n🎉 原价 ${r.cost_points} 分，当前降价 ${Math.round(Math.abs(r.pricing_rate) * 100)}%`;
-      if (couponId) confirmMsg += `\n🎟️ 使用优惠券 #${couponId}`;
       if (!confirm(confirmMsg)) return;
       try {
-        const body = { reward_id: r.id };
-        if (couponId) body.coupon_id = couponId;
-        const res = await this.api(`/rewards/redeem`, 'POST', body);
+        const res = await this.api(`/rewards/redeem`, 'POST', { reward_id: r.id });
         this.toast(res.message);
         await Promise.all([this.loadGroupInfo(), this.loadRewards(), this.loadLogs(true), this.loadMedals(), this.loadCoupons()]);
       } catch (e) { this.toast(e.message, 'error'); }
@@ -1870,14 +1910,48 @@ function app() {
     async loadCoupons() {
       try { this.coupons = await this.api('/coupons'); } catch (_) {}
     },
-    async exchangeCoupon() {
-      if (this.couponForm.medal_cost < 1) return this.toast('消耗奖章数至少为 1', 'error');
-      if (this.couponForm.discount_pct < 1 || this.couponForm.discount_pct > 100) return this.toast('折扣% 需在 1-100 之间', 'error');
+    openCouponExchange() {
+      if (this.medalsToday < 5) return this.toast('至少需要 5 枚奖章才能兑换优惠券（当前 ' + this.medalsToday + ' 枚）', 'error');
+      this.couponExchangeCount = Math.min(5, this.medalsToday);
+      this.couponModalOpen = true;
+    },
+    async doExchangeCoupon() {
+      if (this.couponExchangeCount < 5) return this.toast('至少需要 5 枚奖章', 'error');
+      if (this.couponExchangeCount > this.medalsToday) return this.toast('奖章不足', 'error');
       try {
-        const res = await this.api('/medals/exchange', 'POST', this.couponForm);
-        this.toast(`优惠券兑换成功！剩余奖章 ${res.medals_remaining} 枚`);
-        this.couponForm.medal_cost = 1;
+        const res = await this.api('/medals/exchange', 'POST', { medal_count: this.couponExchangeCount });
+        this.couponModalOpen = false;
+        this.toast(`优惠券兑换成功！${this.couponExchangeCount} 章 → ${res.adjustment_pct}% 额度，剩余 ${res.medals_remaining} 章`);
         await Promise.all([this.loadMedals(), this.loadCoupons()]);
+      } catch (e) { this.toast(e.message, 'error'); }
+    },
+    openCouponUse(c) {
+      this.activeCoupon = c;
+      this.couponUseModalOpen = true;
+    },
+    couponAdjustedCost(r) {
+      if (!this.activeCoupon) return r.cost_points;
+      const rate = r.pricing_rate || 0;
+      const adjusted = rate - (this.activeCoupon.medal_count * 0.02);
+      return Math.max(1, Math.round(r.cost_points * (1 + adjusted)));
+    },
+    async useCouponOnReward(r) {
+      const cost = this.couponAdjustedCost(r);
+      const adjPct = this.activeCoupon.medal_count * 2;
+      if (this.currentPoints < cost) {
+        this.toast(`积分不足！需要 ${cost} 分，当前 ${this.currentPoints} 分`, 'error');
+        return;
+      }
+      if (!confirm(`确定用 ${cost} 分兑换「${r.name}」吗？\n（优惠券 ${this.activeCoupon.medal_count} 章 -${adjPct}%）`)) return;
+      try {
+        const res = await this.api('/rewards/redeem', 'POST', {
+          reward_id: r.id,
+          coupon_id: this.activeCoupon.id,
+        });
+        this.couponUseModalOpen = false;
+        this.activeCoupon = null;
+        this.toast(res.message);
+        await Promise.all([this.loadGroupInfo(), this.loadRewards(), this.loadLogs(true), this.loadMedals(), this.loadCoupons()]);
       } catch (e) { this.toast(e.message, 'error'); }
     },
     async deleteCoupon(id) {

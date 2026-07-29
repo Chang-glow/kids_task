@@ -252,7 +252,7 @@ class TestPricingService:
         for r in rewards:
             assert "pricing_rate" in r
             assert "surged_cost" in r
-            if r["pricing_rate"] is not None:
+            if r["surged_cost"] is not None:
                 expected = round(r["cost_points"] * (1 + r["pricing_rate"]))
                 if expected < 1:
                     expected = 1

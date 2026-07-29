@@ -560,7 +560,7 @@
             <h4 style="margin-top:16px;">🎫 所有优惠券</h4>
             <table class="ops-table">
               <thead>
-                <tr><th>孩子</th><th>类型</th><th>折扣</th><th>状态</th><th>创建时间</th></tr>
+                <tr><th>孩子</th><th>奖章数</th><th>额度</th><th>状态</th><th>创建时间</th></tr>
               </thead>
               <tbody>
                 <template x-if="!allCoupons.length">
@@ -569,11 +569,8 @@
                 <template x-for="c in allCoupons" :key="c.id">
                   <tr>
                     <td x-text="c.child_name"></td>
-                    <td>
-                      <span x-show="c.coupon_type === 'anti_surge'">🛡️ 抗涨价</span>
-                      <span x-show="c.coupon_type === 'pro_sale'">💰 抄底</span>
-                    </td>
-                    <td><strong x-text="'-' + c.discount_pct + '%'"></strong></td>
+                    <td><strong x-text="c.medal_count + ' 章'"></strong></td>
+                    <td><strong x-text="(c.medal_count * 2) + '%'"></strong></td>
                     <td>
                       <span x-show="c.used" style="color:#94a3b8;">已使用</span>
                       <span x-show="!c.used" style="color:#22c55e;">可用</span>

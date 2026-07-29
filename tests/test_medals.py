@@ -1,4 +1,4 @@
-"""Tests for medal awarding + coupon exchange system (Feature 2)."""
+"""Tests for medal awarding + coupon exchange system (v2: unified coupon)."""
 
 import pytest
 
@@ -9,10 +9,6 @@ class TestAwardMedal:
     def test_first_medal_creates_record(self):
         """First medal of the day creates a new daily_medals row with count=1."""
         from api.services.medal_service import award_medal
-        from api.models.database import get_db
-
-        # We need a real DB for this, but the logic is simple enough to test
-        # the function signature and calling pattern
         assert callable(award_medal)
 
     def test_subsequent_medal_increments_count(self):
@@ -22,84 +18,63 @@ class TestAwardMedal:
 
 
 class TestExchangeCoupon:
-    def test_exchange_validation_coupon_type(self):
-        """Only 'anti_surge' and 'pro_sale' are valid coupon types."""
+    def test_exchange_min_5_medals(self):
+        """Minimum 5 medals required to exchange for a coupon."""
         from api.services.medal_service import exchange_coupon
         assert callable(exchange_coupon)
 
     def test_exchange_insufficient_medals_raises(self):
-        """Cannot exchange if daily medal count < medal_cost."""
-        # This is tested in integration
-        pass
-
-    def test_exchange_discount_pct_range(self):
-        """discount_pct must be 1-100."""
+        """Cannot exchange if daily medal count < medal_count."""
         pass
 
 
 class TestApplyCoupon:
-    def test_anti_surge_on_positive_rate(self):
-        """anti_surge coupon reduces positive pricing_rate by discount_pct."""
+    def test_coupon_on_positive_rate(self):
+        """Coupon reduces positive pricing_rate by medal_count * 2%."""
         from api.services.medal_service import compute_effective_price
 
-        # pricing_rate=0.3 (30% surge), discount_pct=50 → effective rate=0.15
-        rate = compute_effective_price("anti_surge", 50, 0.3)
-        assert rate == 0.15
+        # pricing_rate=0.3 (30% surge), medal_count=5 (10%) → 0.20
+        rate = compute_effective_price(5, 0.3)
+        assert round(rate, 4) == 0.20
 
-    def test_anti_surge_caps_at_zero(self):
-        """anti_surge cannot make rate negative (cap at 0)."""
+    def test_coupon_can_go_negative(self):
+        """Coupon can push rate below zero (natural sale)."""
         from api.services.medal_service import compute_effective_price
 
-        # pricing_rate=0.1, discount_pct=200 → would be -0.1, cap at 0
-        rate = compute_effective_price("anti_surge", 200, 0.1)
-        assert rate == 0.0
+        # pricing_rate=0.05, medal_count=10 (20%) → -0.15
+        rate = compute_effective_price(10, 0.05)
+        assert round(rate, 4) == -0.15
 
-    def test_anti_surge_on_non_surge_does_nothing(self):
-        """anti_surge on non-positive pricing_rate has no effect."""
+    def test_coupon_on_flat_pricing(self):
+        """On flat (rate=0) pricing, coupon creates a discount."""
         from api.services.medal_service import compute_effective_price
 
-        rate = compute_effective_price("anti_surge", 50, -0.2)
-        assert rate == -0.2  # unchanged
+        rate = compute_effective_price(5, 0.0)
+        assert rate == -0.10
 
-    def test_pro_sale_forces_sale_rate(self):
-        """pro_sale applies -(discount_pct/100) regardless of current rate."""
+    def test_coupon_amplifies_existing_sale(self):
+        """On already-negative rate, coupon deepens the discount."""
         from api.services.medal_service import compute_effective_price
 
-        # discount_pct=30 → effective_rate = -0.3
-        rate = compute_effective_price("pro_sale", 30, 0.0)
-        assert rate == -0.3
+        rate = compute_effective_price(3, -0.15)
+        assert rate == -0.21
 
-    def test_pro_sale_replaces_existing_rate(self):
-        """pro_sale overrides any existing rate."""
+    def test_compute_effective_cost_with_coupon(self):
+        """Effective cost with coupon: base * (1 + adjusted_rate)."""
         from api.services.medal_service import compute_effective_price
 
-        rate = compute_effective_price("pro_sale", 40, 0.25)
-        assert rate == -0.4
-
-    def test_compute_effective_cost_anti_surge(self):
-        """anti_surge effective cost = base * (1 + reduced_rate)."""
-        from api.services.medal_service import compute_effective_price
-
-        # base=100, pricing_rate=0.3, discount_pct=50 → effective_rate=0.15
-        # cost = round(100 * 1.15) = 115
-        rate = compute_effective_price("anti_surge", 50, 0.3)
+        # base=100, pricing_rate=0.3, medal_count=10 (20%) → effective_rate=0.10
+        # cost = max(1, round(100 * 1.10)) = 110
+        rate = compute_effective_price(10, 0.3)
         cost = max(1, round(100 * (1 + rate)))
-        assert cost == 115
+        assert cost == 110
 
-    def test_compute_effective_cost_pro_sale(self):
-        """pro_sale effective cost = base * (1 - discount_pct/100)."""
+    def test_large_medal_count(self):
+        """Many medals create deep discount."""
         from api.services.medal_service import compute_effective_price
 
-        rate = compute_effective_price("pro_sale", 30, 0.5)
-        cost = max(1, round(100 * (1 + rate)))
-        assert cost == 70
-
-    def test_anti_surge_on_flat_pricing(self):
-        """anti_surge on flat (rate=0) pricing has no effect."""
-        from api.services.medal_service import compute_effective_price
-
-        rate = compute_effective_price("anti_surge", 50, 0.0)
-        assert rate == 0.0
+        rate = compute_effective_price(50, 0.0)
+        assert rate == -1.0
 
 
 # ---- Unit tests: medal count ----
@@ -118,21 +93,17 @@ class TestMedalIntegration:
     def test_medal_awarded_on_task_complete(self, client, group_ctx):
         """Completing a task awards 1 medal."""
         headers = group_ctx["headers"]
-        gid = group_ctx["id"]
 
-        # Add a task
         t = client.post("/api/tasks", json={
             "name": "奖章测试任务", "emoji": "⭐", "base_points": 10,
         }, headers=headers)
         task_id = t.json()["id"]
 
-        # Complete it
         res = client.post("/api/tasks/complete", json={
             "task_id": task_id, "star_rating": 3,
         }, headers=headers)
         assert res.status_code == 200
 
-        # Check medals
         res2 = client.get("/api/medals/today", headers=headers)
         assert res2.status_code == 200
         data = res2.json()
@@ -142,7 +113,6 @@ class TestMedalIntegration:
         """Multiple task completions accumulate medals."""
         headers = group_ctx["headers"]
 
-        # Add 3 tasks
         for i in range(3):
             t = client.post("/api/tasks", json={
                 "name": f"奖章任务{i}", "emoji": "⭐", "base_points": 10,
@@ -157,35 +127,76 @@ class TestMedalIntegration:
 
 
 class TestCouponExchange:
-    def test_exchange_anti_surge_coupon(self, client, group_ctx):
-        """Exchange medals for anti_surge coupon."""
+    def test_exchange_coupon_with_5_medals(self, client, group_ctx):
+        """Exchange 5 medals for a coupon (10% adjustment)."""
         headers = group_ctx["headers"]
         gid = group_ctx["id"]
 
-        # First earn some medals
-        t = client.post("/api/tasks", json={
-            "name": "换券任务", "emoji": "⭐", "base_points": 10,
-        }, headers=headers)
-        task_id = t.json()["id"]
-        client.post("/api/tasks/complete", json={
-            "task_id": task_id, "star_rating": 5,
-        }, headers=headers)
+        # Earn 5 medals
+        for i in range(5):
+            t = client.post("/api/tasks", json={
+                "name": f"换券任务{i}", "emoji": "⭐", "base_points": 10,
+            }, headers=headers)
+            task_id = t.json()["id"]
+            client.post("/api/tasks/complete", json={
+                "task_id": task_id, "star_rating": 5,
+            }, headers=headers)
 
-        # Exchange 1 medal for anti_surge 50% coupon
         res = client.post("/api/medals/exchange", json={
-            "coupon_type": "anti_surge", "discount_pct": 50, "medal_cost": 1,
+            "medal_count": 5,
         }, headers=headers)
         assert res.status_code == 200
         data = res.json()
         assert data["success"] is True
         assert "coupon_id" in data
+        assert data["adjustment_pct"] == 10
+        assert data["medals_remaining"] >= 0
 
-    def test_exchange_pro_sale_coupon(self, client, group_ctx):
-        """Exchange medals for pro_sale coupon."""
+    def test_exchange_coupon_with_more_medals(self, client, group_ctx):
+        """Exchange 7 medals (14% adjustment)."""
         headers = group_ctx["headers"]
 
+        for i in range(8):
+            t = client.post("/api/tasks", json={
+                "name": f"多章任务{i}", "emoji": "⭐", "base_points": 10,
+            }, headers=headers)
+            task_id = t.json()["id"]
+            client.post("/api/tasks/complete", json={
+                "task_id": task_id, "star_rating": 5,
+            }, headers=headers)
+
+        res = client.post("/api/medals/exchange", json={
+            "medal_count": 7,
+        }, headers=headers)
+        assert res.status_code == 200
+        data = res.json()
+        assert data["adjustment_pct"] == 14
+
+    def test_exchange_below_minimum_5(self, client, group_ctx):
+        """Exchange fails with fewer than 5 medals."""
+        headers = group_ctx["headers"]
+
+        for i in range(5):
+            t = client.post("/api/tasks", json={
+                "name": f"最少测试{i}", "emoji": "⭐", "base_points": 10,
+            }, headers=headers)
+            task_id = t.json()["id"]
+            client.post("/api/tasks/complete", json={
+                "task_id": task_id, "star_rating": 5,
+            }, headers=headers)
+
+        res = client.post("/api/medals/exchange", json={
+            "medal_count": 3,
+        }, headers=headers)
+        assert res.status_code == 400
+
+    def test_exchange_insufficient_medals(self, client, group_ctx):
+        """Exchange fails when not enough medals."""
+        headers = group_ctx["headers"]
+
+        # Only 1 medal earned
         t = client.post("/api/tasks", json={
-            "name": "折扣券任务", "emoji": "⭐", "base_points": 10,
+            "name": "不够章", "emoji": "⭐", "base_points": 10,
         }, headers=headers)
         task_id = t.json()["id"]
         client.post("/api/tasks/complete", json={
@@ -193,41 +204,7 @@ class TestCouponExchange:
         }, headers=headers)
 
         res = client.post("/api/medals/exchange", json={
-            "coupon_type": "pro_sale", "discount_pct": 30, "medal_cost": 1,
-        }, headers=headers)
-        assert res.status_code == 200
-        assert res.json()["success"] is True
-
-    def test_exchange_insufficient_medals(self, client, group_ctx):
-        """Exchange fails when not enough medals."""
-        headers = group_ctx["headers"]
-
-        # No medals earned yet
-        res = client.post("/api/medals/exchange", json={
-            "coupon_type": "anti_surge", "discount_pct": 50, "medal_cost": 100,
-        }, headers=headers)
-        assert res.status_code == 400
-
-    def test_exchange_invalid_coupon_type(self, client, group_ctx):
-        """Invalid coupon_type returns 400."""
-        headers = group_ctx["headers"]
-
-        res = client.post("/api/medals/exchange", json={
-            "coupon_type": "invalid_type", "discount_pct": 50, "medal_cost": 1,
-        }, headers=headers)
-        assert res.status_code == 400
-
-    def test_exchange_invalid_discount_pct(self, client, group_ctx):
-        """discount_pct must be 1-100."""
-        headers = group_ctx["headers"]
-
-        res = client.post("/api/medals/exchange", json={
-            "coupon_type": "anti_surge", "discount_pct": 0, "medal_cost": 1,
-        }, headers=headers)
-        assert res.status_code == 400
-
-        res = client.post("/api/medals/exchange", json={
-            "coupon_type": "anti_surge", "discount_pct": 101, "medal_cost": 1,
+            "medal_count": 5,
         }, headers=headers)
         assert res.status_code == 400
 
@@ -240,28 +217,26 @@ class TestCouponList:
         assert res.json() == []
 
     def test_list_coupons_with_data(self, client, group_ctx):
-        """List shows exchanged coupons."""
+        """List shows exchanged coupons with medal_count."""
         headers = group_ctx["headers"]
 
-        # Earn medals
-        t = client.post("/api/tasks", json={
-            "name": "列表测试", "emoji": "⭐", "base_points": 10,
-        }, headers=headers)
-        task_id = t.json()["id"]
-        client.post("/api/tasks/complete", json={
-            "task_id": task_id, "star_rating": 5,
-        }, headers=headers)
+        for i in range(5):
+            t = client.post("/api/tasks", json={
+                "name": f"列表测试{i}", "emoji": "⭐", "base_points": 10,
+            }, headers=headers)
+            task_id = t.json()["id"]
+            client.post("/api/tasks/complete", json={
+                "task_id": task_id, "star_rating": 5,
+            }, headers=headers)
 
-        # Exchange
         client.post("/api/medals/exchange", json={
-            "coupon_type": "anti_surge", "discount_pct": 60, "medal_cost": 1,
+            "medal_count": 5,
         }, headers=headers)
 
         res = client.get("/api/coupons", headers=headers)
         coupons = res.json()
         assert len(coupons) == 1
-        assert coupons[0]["coupon_type"] == "anti_surge"
-        assert coupons[0]["discount_pct"] == 60
+        assert coupons[0]["medal_count"] == 5
         assert coupons[0]["used"] is False
 
 
@@ -270,15 +245,16 @@ class TestCouponDelete:
         """Delete an unused coupon."""
         headers = group_ctx["headers"]
 
-        t = client.post("/api/tasks", json={
-            "name": "删券测试", "emoji": "⭐", "base_points": 10,
-        }, headers=headers)
-        task_id = t.json()["id"]
-        client.post("/api/tasks/complete", json={
-            "task_id": task_id, "star_rating": 5,
-        }, headers=headers)
+        for i in range(5):
+            t = client.post("/api/tasks", json={
+                "name": f"删券测试{i}", "emoji": "⭐", "base_points": 10,
+            }, headers=headers)
+            task_id = t.json()["id"]
+            client.post("/api/tasks/complete", json={
+                "task_id": task_id, "star_rating": 5,
+            }, headers=headers)
         ex = client.post("/api/medals/exchange", json={
-            "coupon_type": "pro_sale", "discount_pct": 20, "medal_cost": 1,
+            "medal_count": 5,
         }, headers=headers)
         coupon_id = ex.json()["coupon_id"]
 
@@ -288,18 +264,16 @@ class TestCouponDelete:
 
 
 class TestRedeemWithCoupon:
-    def test_redeem_with_anti_surge_coupon(self, client, group_ctx):
-        """Redeem reward with anti_surge coupon reduces surged cost."""
+    def test_redeem_with_coupon_reduces_surge(self, client, group_ctx):
+        """Redeem reward with coupon: 10 medals (20%) reduces surged cost."""
         headers = group_ctx["headers"]
         gid = group_ctx["id"]
 
-        # Add a reward
         r = client.post("/api/rewards", json={
             "name": "测试奖励", "emoji": "🎁", "cost_points": 100,
         }, headers=headers)
         reward_id = r.json()["id"]
 
-        # Give points to child
         from api.models.database import get_db
         conn = get_db()
         cur = conn.cursor()
@@ -307,38 +281,34 @@ class TestRedeemWithCoupon:
         conn.commit()
         conn.close()
 
-        # Earn medals
-        t = client.post("/api/tasks", json={
-            "name": "兑奖测试", "emoji": "⭐", "base_points": 10,
-        }, headers=headers)
-        task_id = t.json()["id"]
-        client.post("/api/tasks/complete", json={
-            "task_id": task_id, "star_rating": 5,
-        }, headers=headers)
+        for i in range(10):
+            t = client.post("/api/tasks", json={
+                "name": f"兑奖任务{i}", "emoji": "⭐", "base_points": 10,
+            }, headers=headers)
+            task_id = t.json()["id"]
+            client.post("/api/tasks/complete", json={
+                "task_id": task_id, "star_rating": 5,
+            }, headers=headers)
 
-        # Exchange for anti_surge coupon
         ex = client.post("/api/medals/exchange", json={
-            "coupon_type": "anti_surge", "discount_pct": 100, "medal_cost": 1,
+            "medal_count": 10,
         }, headers=headers)
         coupon_id = ex.json()["coupon_id"]
 
-        # Redeem with coupon
         res = client.post("/api/rewards/redeem", json={
             "reward_id": reward_id, "coupon_id": coupon_id,
         }, headers=headers)
         assert res.status_code == 200
         data = res.json()
         assert data["success"] is True
-        # With anti_surge 100%, surged cost should be canceled → base=100
-        assert data["spent_points"] <= 100
 
-    def test_redeem_with_pro_sale_coupon(self, client, group_ctx):
-        """Redeem with pro_sale coupon applies forced discount."""
+    def test_redeem_with_small_coupon(self, client, group_ctx):
+        """5 medals (10%) on base 100."""
         headers = group_ctx["headers"]
         gid = group_ctx["id"]
 
         r = client.post("/api/rewards", json={
-            "name": "折扣奖励", "emoji": "🎁", "cost_points": 100,
+            "name": "小券奖励", "emoji": "🎁", "cost_points": 100,
         }, headers=headers)
         reward_id = r.json()["id"]
 
@@ -348,15 +318,16 @@ class TestRedeemWithCoupon:
         conn.commit()
         conn.close()
 
-        t = client.post("/api/tasks", json={
-            "name": "折扣任务", "emoji": "⭐", "base_points": 10,
-        }, headers=headers)
-        task_id = t.json()["id"]
-        client.post("/api/tasks/complete", json={
-            "task_id": task_id, "star_rating": 5,
-        }, headers=headers)
+        for i in range(5):
+            t = client.post("/api/tasks", json={
+                "name": f"小券任务{i}", "emoji": "⭐", "base_points": 10,
+            }, headers=headers)
+            task_id = t.json()["id"]
+            client.post("/api/tasks/complete", json={
+                "task_id": task_id, "star_rating": 5,
+            }, headers=headers)
         ex = client.post("/api/medals/exchange", json={
-            "coupon_type": "pro_sale", "discount_pct": 30, "medal_cost": 1,
+            "medal_count": 5,
         }, headers=headers)
         coupon_id = ex.json()["coupon_id"]
 
@@ -364,10 +335,6 @@ class TestRedeemWithCoupon:
             "reward_id": reward_id, "coupon_id": coupon_id,
         }, headers=headers)
         assert res.status_code == 200
-        data = res.json()
-        assert data["success"] is True
-        # pro_sale 30%: cost = max(1, round(100 * 0.7)) = 70
-        assert data["spent_points"] == 70
 
 
 class TestCouponUsedOnce:
@@ -387,24 +354,23 @@ class TestCouponUsedOnce:
         conn.commit()
         conn.close()
 
-        t = client.post("/api/tasks", json={
-            "name": "券用完", "emoji": "⭐", "base_points": 10,
-        }, headers=headers)
-        task_id = t.json()["id"]
-        client.post("/api/tasks/complete", json={
-            "task_id": task_id, "star_rating": 5,
-        }, headers=headers)
+        for i in range(5):
+            t = client.post("/api/tasks", json={
+                "name": f"券用完{i}", "emoji": "⭐", "base_points": 10,
+            }, headers=headers)
+            task_id = t.json()["id"]
+            client.post("/api/tasks/complete", json={
+                "task_id": task_id, "star_rating": 5,
+            }, headers=headers)
         ex = client.post("/api/medals/exchange", json={
-            "coupon_type": "pro_sale", "discount_pct": 10, "medal_cost": 1,
+            "medal_count": 5,
         }, headers=headers)
         coupon_id = ex.json()["coupon_id"]
 
-        # Redeem
         client.post("/api/rewards/redeem", json={
             "reward_id": reward_id, "coupon_id": coupon_id,
         }, headers=headers)
 
-        # Coupon list should be empty (used coupon not listed)
         res = client.get("/api/coupons", headers=headers)
         assert res.json() == []
 

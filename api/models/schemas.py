@@ -42,9 +42,7 @@ class RedeemRewardRequest(BaseModel):
 
 
 class ExchangeCouponRequest(BaseModel):
-    coupon_type: str
-    discount_pct: int
-    medal_cost: int
+    medal_count: int
 
 
 class PunishRequest(BaseModel):

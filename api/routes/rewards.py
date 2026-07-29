@@ -113,18 +113,16 @@ def redeem_reward(req: RedeemRewardRequest, group_id: int = Depends(get_group_id
             cost = reward["cost_points"]
             rate = 0.0
 
-        # 应用优惠券调整有效价格
+        # 应用优惠券调整有效价格（每章 = 2% 额度）
         coupon_desc = ""
         if coupon is not None:
             from api.services.medal_service import compute_effective_price
             effective_rate = compute_effective_price(
-                coupon["coupon_type"], coupon["discount_pct"], rate,
+                coupon["medal_count"], rate,
             )
             cost = max(1, round(reward["cost_points"] * (1 + effective_rate)))
-            if coupon["coupon_type"] == "anti_surge":
-                coupon_desc = f"（抗涨价券 -{coupon['discount_pct']}%）"
-            else:
-                coupon_desc = f"（抄底券 -{coupon['discount_pct']}%）"
+            adj_pct = coupon["medal_count"] * 2
+            coupon_desc = f"（优惠券 {coupon['medal_count']}章 -{adj_pct}%）"
 
         if current_points < cost:
             hint = ""

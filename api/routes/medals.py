@@ -6,7 +6,7 @@ from api.models.database import get_db
 from api.models.schemas import ExchangeCouponRequest
 from api.config import now_cst
 from api.services.medal_service import (
-    award_medal, get_today_medals,
+    get_today_medals,
     exchange_coupon, get_child_coupons, delete_coupon,
 )
 
@@ -36,15 +36,14 @@ def get_medals_today(group_id: int = Depends(get_group_id)):
 
 @router.post("/medals/exchange")
 def exchange_medals(req: ExchangeCouponRequest, group_id: int = Depends(get_group_id)):
-    """用奖章兑换优惠券。客户端自定折扣%和消耗奖章数。"""
+    """用奖章兑换优惠券。5 章起兑，每章 = 2% 涨降价额度。"""
     conn = get_db()
     cur = conn.cursor()
     try:
         child_id = _get_child_id(cur, group_id)
         now = now_cst()
         result = exchange_coupon(
-            cur, child_id, group_id,
-            req.coupon_type, req.discount_pct, req.medal_cost, now,
+            cur, child_id, group_id, req.medal_count, now,
         )
         conn.commit()
         return result
