@@ -12,7 +12,8 @@
 - **惩罚冷静期** — 扣分有 10 分钟 / 1 小时 / 24 小时三档上限，避免情绪化操作
 - **限时翻倍** — 每日随机3个任务获得 1.5x-2.0x 倍率，连续中奖权重衰减，admin 可覆盖
 - **悬赏条件** — 三种类型：接受挑战（弹窗自评 pass/fail）、连续打卡（连续 N 天完成奖励/中断扣分）、任务集合（同一天完成指定/随机任务集奖励），每日随机 4 选
-- **涨降价** — 每日随机 2-5 个奖励涨降价，涨幅 10%-50%（5% 一档），降幅 10%-25%（5% 一档），admin 可锁定/免疫/手动设定幅度
+- **时段定价** — 每日奖励按时段自动涨降价，SHA256 确定性随机生成定价曲线，6 段分段线性插值，admin 可覆盖
+- **奖章与优惠券** — 完成任务获 1 枚奖章，5 章起兑优惠券（1 章 = 2% 涨降价额度），兑换奖励时使用
 - **撤回支持** — 所有操作可撤销，`undo_operations` 表记录完整上下文
 - **贷款系统** — 可借积分应急，日利率单利计息，按时还款积累信用分提升贷款额度
 
@@ -37,10 +38,10 @@ cp .env.example .env
 ### 3. 启动后端
 
 ```bash
-python api/main.py
+bash run.sh
 ```
 
-服务启动后访问：`http://localhost:8000`
+服务启动后访问：`http://localhost:8001`
 
 首次访问会自动初始化表结构并插入示例任务和奖励。
 
@@ -66,19 +67,21 @@ pytest tests/ -v
 │   ├── routes/
 │   │   ├── group.py        # 群组创建 / 查询（POST/GET /api/groups）
 │   │   ├── tasks.py        # 任务 CRUD + 完成评级 + 条件检测
-│   │   ├── rewards.py      # 奖励商城 CRUD + 兑换
+│   │   ├── rewards.py      # 奖励商城 CRUD + 兑换 + 时段定价
+│   │   ├── medals.py        # 奖章查询 + 优惠券兑换/使用
 │   │   ├── children.py     # 孩子档案管理
 │   │   ├── logs.py         # 积分流水、惩罚扣分、统计
 │   │   └── admin.py        # Admin 面板（密码设置/登录/群组管理/撤回）
 │   └── services/
 │       ├── point_service.py     # 积分计算（星级 × 基础分 → 最终分）
 │       ├── boost_service.py     # 每日翻倍（权重抽样、衰减、覆盖）
-│       ├── surge_service.py     # 每日涨降价（随机选取、涨降幅分配、覆盖）
+│       ├── pricing_service.py   # 时段定价（SHA256 确定性曲线、分段插值）
+│       ├── medal_service.py     # 奖章与优惠券（5 章起兑、1 章 = 2%）
 │       ├── condition_service.py # 悬赏条件（选取、奖惩、streak/task_set 检测）
 │       └── loan_service.py      # 贷款服务（利息、信用分）
 ├── index.html              # 主前端 SPA（Alpine.js）
 ├── admin.html              # Admin 管理后台
-├── tests/                  # pytest 测试（119 个测试）
+├── tests/                  # pytest 测试（155 个测试）
 │   ├── conftest.py
 │   ├── test_smoke.py
 │   ├── test_group.py
@@ -89,9 +92,12 @@ pytest tests/ -v
 │   ├── test_admin.py
 │   ├── test_loans.py
 │   ├── test_boosts.py        # 限时翻倍测试
-│   ├── test_surges.py        # 涨降价测试
+│   ├── test_pricing.py       # 时段定价测试
+│   ├── test_medals.py        # 奖章与优惠券测试
 │   └── test_conditions.py    # 悬赏条件测试
 ├── old/                    # 旧版单文件 app.py + index.html（保留对照）
+├── run.sh                  # 本地开发启动脚本
+├── register.sh             # CLI 注册脚本
 ├── requirements.txt
 ├── requirements-dev.txt
 ├── vercel.json             # Vercel Serverless 部署配置
@@ -111,8 +117,10 @@ pytest tests/ -v
 | `loans` | 贷款记录（本金、剩余本金、日利率、累计利息、状态） |
 | `daily_task_boosts` | 每日翻倍记录（任务 × 日期 × 倍率） |
 | `daily_boost_overrides` | 翻倍覆盖（lock_in / lock_out / manual） |
-| `daily_reward_surges` | 每日涨降价记录（奖励 × 日期 × 幅度 × 类型） |
-| `daily_reward_surge_overrides` | 涨降价覆盖（lock_in / lock_out / manual_rate） |
+| `daily_reward_pricing` | 时段定价记录（奖励 × 日期，SHA256 确定性随机） |
+| `daily_pricing_overrides` | 定价覆盖（lock_in / lock_out / manual_params） |
+| `daily_medals` | 每日奖章记录（孩子 × 日期 × 数量） |
+| `coupons` | 优惠券（归属孩子，medal_count 章数，used 状态） |
 | `conditions` | 悬赏条件定义（acceptance / streak / task_set_specific / task_set_random） |
 | `condition_task_bindings` | 条件 ↔ 任务多对多绑定 |
 | `daily_condition_selections` | 每日条件选取（群组 × 日期，advisory lock 防竞态） |
@@ -154,9 +162,18 @@ pytest tests/ -v
 |------|------|------|
 | GET | `/api/rewards` | 获取奖励列表（按积分升序，注入涨降价信息） |
 | POST | `/api/rewards` | 添加奖励 |
-| POST | `/api/rewards/redeem` | 兑换奖励（事务保护，不扣成负数，应用涨降价） |
+| POST | `/api/rewards/redeem` | 兑换奖励（事务保护，不扣成负数，支持优惠券降价） |
 | DELETE | `/api/rewards/{id}` | 删除奖励 |
-| GET | `/api/rewards/surges/today` | 获取今日涨降价映射 |
+| GET | `/api/rewards/pricing/today` | 获取今日时段定价映射 |
+
+### 奖章 & 优惠券
+
+| 方法 | 路径 | 功能 |
+|------|------|------|
+| GET | `/api/medals/today` | 获取今日奖章数 |
+| POST | `/api/medals/exchange` | 奖章兑换优惠券（5 章起兑） |
+| GET | `/api/coupons` | 获取可用优惠券列表 |
+| DELETE | `/api/coupons/{id}` | 删除优惠券 |
 
 ### 孩子 & 积分
 

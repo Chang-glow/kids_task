@@ -385,7 +385,7 @@ def admin_undo(operation_id: int, _token: str = Depends(_require_admin)):
         if op_type == "manual_edit":
             child_id = undo_data["child_id"]
             cur.execute(
-                "UPDATE children SET total_points = %s WHERE id = %s",
+                "UPDATE children SET total_points = GREATEST(0, %s) WHERE id = %s",
                 (undo_data["previous_points"], child_id),
             )
             for lid in undo_data.get("log_ids", []):
