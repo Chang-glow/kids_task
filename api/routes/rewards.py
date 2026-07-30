@@ -113,15 +113,15 @@ def redeem_reward(req: RedeemRewardRequest, group_id: int = Depends(get_group_id
             cost = reward["cost_points"]
             rate = 0.0
 
-        # 应用优惠券调整有效价格（每章 = 2% 额度）
+        # 应用优惠券调整有效价格
         coupon_desc = ""
         if coupon is not None:
-            from api.services.medal_service import compute_effective_price
+            from api.services.medal_service import compute_effective_price, coupon_discount_pct
             effective_rate = compute_effective_price(
                 coupon["medal_count"], rate,
             )
             cost = max(1, round(reward["cost_points"] * (1 + effective_rate)))
-            adj_pct = coupon["medal_count"] * 2
+            adj_pct = coupon_discount_pct(coupon["medal_count"])
             coupon_desc = f"（优惠券 {coupon['medal_count']}章 -{adj_pct}%）"
 
         if current_points < cost:

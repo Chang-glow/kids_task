@@ -1,17 +1,31 @@
 """奖章 + 优惠券服务：完成任务获得奖章 → 兑换优惠券 → 兑换奖励时使用。"""
 
 
-def compute_effective_price(medal_count: int, pricing_rate: float) -> float:
-    """纯函数：每枚奖章 = 2% 涨降价额度，从当前定价率中扣除。
+def coupon_discount_pct(medal_count: int) -> int:
+    """奖章数 → 累计折扣百分比。
 
-    effective_rate = pricing_rate - (medal_count * 0.02)
+    前 5 章保底 10%（每章 2%），第 6 章起按 Fibonacci 递增：
+        F(4)=3, F(5)=5, F(6)=8, F(7)=13, F(8)=21, ...
 
-    自然统一了旧 anti_surge 和 pro_sale 逻辑：
-    - 涨价时（rate > 0）：抵消涨价，奖章够多可转为降价
-    - 平价时（rate = 0）：直接产生降价
-    - 降价时（rate < 0）：进一步加大降价力度
+    >>> [coupon_discount_pct(n) for n in range(5, 11)]
+    [10, 13, 18, 26, 39, 60]
     """
-    return pricing_rate - (medal_count * 0.02)
+    if medal_count < 5:
+        return medal_count * 2
+    total = 10
+    a, b = 2, 3  # F(3)=2, F(4)=3 → 第 1 个额外章加 3%
+    for _ in range(medal_count - 5):
+        total += b
+        a, b = b, a + b
+    return total
+
+
+def compute_effective_price(medal_count: int, pricing_rate: float) -> float:
+    """纯函数：从当前定价率中扣除优惠券折扣。
+
+    effective_rate = pricing_rate - (coupon_discount_pct / 100)
+    """
+    return pricing_rate - (coupon_discount_pct(medal_count) / 100)
 
 
 # ---- 奖章 ----
@@ -70,7 +84,7 @@ def exchange_coupon(cur, child_id: int, group_id: int,
         "success": True,
         "coupon_id": coupon_id,
         "medals_remaining": balance - medal_count,
-        "adjustment_pct": medal_count * 2,
+        "adjustment_pct": coupon_discount_pct(medal_count),
     }
 
 

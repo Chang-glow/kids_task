@@ -1368,7 +1368,7 @@ input:focus, select:focus {
 <div class="modal-overlay" :class="{ open: couponModalOpen }">
   <div class="modal">
     <h3>🎟️ 兑换优惠券</h3>
-    <div style="font-size:0.9rem;color:#718096;font-weight:700;margin:8px 0;">每枚奖章 = 2% 涨降价额度，5 章起兑</div>
+    <div style="font-size:0.9rem;color:#718096;font-weight:700;margin:8px 0;">5 章保底 10% 折扣，每加 1 章按斐波那契递增 (+3%, +5%, +8%, +13%...)</div>
     <div style="font-size:1.1rem;font-weight:900;color:#0369a1;margin:12px 0;">🏅 当前拥有: <span x-text="medalsToday"></span> 枚奖章</div>
 
     <div style="display:flex;align-items:center;justify-content:center;gap:16px;margin:20px 0;">
@@ -1387,7 +1387,7 @@ input:focus, select:focus {
     </div>
 
     <div class="points-preview" style="background:linear-gradient(135deg,#e0f2fe,#bae6fd);color:#0369a1;">
-      获得涨降价额度: <span style="font-size:1.5rem;font-weight:900;" x-text="couponExchangeCount * 2 + '%'"></span>
+      获得涨降价额度: <span style="font-size:1.5rem;font-weight:900;" x-text="couponDiscountPct(couponExchangeCount) + '%'"></span>
     </div>
 
     <div class="modal-actions">
@@ -1456,6 +1456,13 @@ const STAR_INFO = {
   4: { desc: '😄 4星 — 非常棒！做得很认真！积分 × 100%', cls: '' },
   5: { desc: '🤩 5星 — 太完美了！超级加倍！积分 × 120%', cls: '' },
 };
+
+function couponDiscountPct(n) {
+  if (n < 5) return n * 2;
+  let total = 10, a = 2, b = 3;
+  for (let i = 0; i < n - 5; i++) { total += b; const t = a + b; a = b; b = t; }
+  return total;
+}
 
 function app() {
   return {
@@ -1618,7 +1625,8 @@ function app() {
           this.currentPoints = info.children[0].total_points;
         }
       } catch (e) {
-        this.toast('群组加载失败', 'error');
+        this.toast('群组加载失败: ' + (e.message || '未知错误'), 'error');
+        console.error('loadGroupInfo failed', e);
       }
     },
 
@@ -1649,7 +1657,8 @@ function app() {
         this.tasks = await this.api(`/tasks`);
         await this.loadDailyBoosts();
       } catch (e) {
-        this.toast('任务加载失败', 'error');
+        this.toast('任务加载失败: ' + (e.message || '未知错误'), 'error');
+        console.error('loadTasks failed', e);
       }
     },
 
@@ -1856,7 +1865,8 @@ function app() {
         this.rewards = await this.api(`/rewards`);
         this.updateProgress();
       } catch (e) {
-        this.toast('奖励加载失败', 'error');
+        this.toast('奖励加载失败: ' + (e.message || '未知错误'), 'error');
+        console.error('loadRewards failed', e);
       }
     },
 
@@ -1933,12 +1943,12 @@ function app() {
     couponAdjustedCost(r) {
       if (!this.activeCoupon) return r.cost_points;
       const rate = r.pricing_rate || 0;
-      const adjusted = rate - (this.activeCoupon.medal_count * 0.02);
+      const adjusted = rate - (couponDiscountPct(this.activeCoupon.medal_count) / 100);
       return Math.max(1, Math.round(r.cost_points * (1 + adjusted)));
     },
     async useCouponOnReward(r) {
       const cost = this.couponAdjustedCost(r);
-      const adjPct = this.activeCoupon.medal_count * 2;
+      const adjPct = couponDiscountPct(this.activeCoupon.medal_count);
       if (this.currentPoints < cost) {
         this.toast(`积分不足！需要 ${cost} 分，当前 ${this.currentPoints} 分`, 'error');
         return;
@@ -2052,7 +2062,8 @@ function app() {
         this.logHasMore = this.logOffset < this.logTotal;
         this.logLoaded = true;
       } catch (e) {
-        this.toast('流水记录加载失败', 'error');
+        this.toast('流水记录加载失败: ' + (e.message || '未知错误'), 'error');
+        console.error('loadLogs failed', e);
       }
     },
 
@@ -2236,11 +2247,11 @@ function app() {
           this.loadStats(),
           this.loadDailyReport(),
           this.loadTodaysConditions(),
-          this.loadPunishLimits(),
-          this.loadLoanStatus(),
-          this.loadMedals(),
-          this.loadCoupons(),
         ]);
+        this.loadPunishLimits();
+        this.loadLoanStatus();
+        this.loadMedals();
+        this.loadCoupons();
         this.pointsPop = true;
         setTimeout(() => this.pointsPop = false, 400);
       } catch (e) {

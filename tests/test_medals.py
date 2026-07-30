@@ -28,6 +28,31 @@ class TestExchangeCoupon:
         pass
 
 
+class TestCouponDiscountPct:
+    def test_fibonacci_sequence(self):
+        """Verify Fibonacci progression: 5→10, 6→13, 7→18, 8→26, 9→39, 10→60."""
+        from api.services.medal_service import coupon_discount_pct
+        assert coupon_discount_pct(5) == 10
+        assert coupon_discount_pct(6) == 13
+        assert coupon_discount_pct(7) == 18
+        assert coupon_discount_pct(8) == 26
+        assert coupon_discount_pct(9) == 39
+        assert coupon_discount_pct(10) == 60
+
+    def test_below_5_linear(self):
+        """Below 5 medals: linear 2% each."""
+        from api.services.medal_service import coupon_discount_pct
+        assert coupon_discount_pct(0) == 0
+        assert coupon_discount_pct(1) == 2
+        assert coupon_discount_pct(3) == 6
+        assert coupon_discount_pct(4) == 8
+
+    def test_fibonacci_12_medals(self):
+        """12 medals = 149% (Fibonacci grows fast)."""
+        from api.services.medal_service import coupon_discount_pct
+        assert coupon_discount_pct(12) == 149
+
+
 class TestApplyCoupon:
     def test_coupon_on_positive_rate(self):
         """Coupon reduces positive pricing_rate by medal_count * 2%."""
@@ -41,9 +66,9 @@ class TestApplyCoupon:
         """Coupon can push rate below zero (natural sale)."""
         from api.services.medal_service import compute_effective_price
 
-        # pricing_rate=0.05, medal_count=10 (20%) → -0.15
-        rate = compute_effective_price(10, 0.05)
-        assert round(rate, 4) == -0.15
+        # pricing_rate=0.05, medal_count=8 (Fibonacci: 26%) → -0.21
+        rate = compute_effective_price(8, 0.05)
+        assert round(rate, 4) == -0.21
 
     def test_coupon_on_flat_pricing(self):
         """On flat (rate=0) pricing, coupon creates a discount."""
@@ -63,18 +88,19 @@ class TestApplyCoupon:
         """Effective cost with coupon: base * (1 + adjusted_rate)."""
         from api.services.medal_service import compute_effective_price
 
-        # base=100, pricing_rate=0.3, medal_count=10 (20%) → effective_rate=0.10
-        # cost = max(1, round(100 * 1.10)) = 110
-        rate = compute_effective_price(10, 0.3)
+        # base=100, pricing_rate=0.3, medal_count=8 (Fibonacci: 26%) → effective_rate=0.04
+        # cost = max(1, round(100 * 1.04)) = 104
+        rate = compute_effective_price(8, 0.3)
         cost = max(1, round(100 * (1 + rate)))
-        assert cost == 110
+        assert cost == 104
 
     def test_large_medal_count(self):
-        """Many medals create deep discount."""
+        """Many medals create deep discount (Fibonacci grows fast)."""
         from api.services.medal_service import compute_effective_price
 
-        rate = compute_effective_price(50, 0.0)
-        assert rate == -1.0
+        # 12 medals = 149% → rate < -1.0
+        rate = compute_effective_price(12, 0.0)
+        assert rate == -1.49
 
 
 # ---- Unit tests: medal count ----
@@ -153,7 +179,7 @@ class TestCouponExchange:
         assert data["medals_remaining"] >= 0
 
     def test_exchange_coupon_with_more_medals(self, client, group_ctx):
-        """Exchange 7 medals (14% adjustment)."""
+        """Exchange 7 medals (Fibonacci: 18%)."""
         headers = group_ctx["headers"]
 
         for i in range(8):
@@ -170,7 +196,7 @@ class TestCouponExchange:
         }, headers=headers)
         assert res.status_code == 200
         data = res.json()
-        assert data["adjustment_pct"] == 14
+        assert data["adjustment_pct"] == 18
 
     def test_exchange_below_minimum_5(self, client, group_ctx):
         """Exchange fails with fewer than 5 medals."""
