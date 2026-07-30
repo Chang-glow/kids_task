@@ -1656,7 +1656,7 @@ function app() {
     async loadDailyBoosts() {
       try {
         this.boostedTasks = await this.api('/tasks/boosts/today');
-      } catch (e) { /* ignore */ }
+      } catch (e) { console.error('loadDailyBoosts failed', e); }
     },
 
     async loadTodaysConditions() {
@@ -1664,7 +1664,7 @@ function app() {
         const res = await this.api('/tasks/conditions/today');
         this.todaysConditions = res.conditions || [];
         this.conditionRefresh = res.refresh || { free_refreshes_left: 2, next_refresh_cost: 0 };
-      } catch (e) { /* ignore */ }
+      } catch (e) { console.error('loadTodaysConditions failed', e); }
     },
 
     async refreshOneCondition(conditionId) {
@@ -1679,12 +1679,13 @@ function app() {
         } else {
           this.toast('悬赏已刷新');
         }
-        await this.loadTodaysConditions();
-        await this.loadTasks();
-        await this.loadChildren();
       } catch (e) {
         this.toast(e.message || '刷新失败', 'error');
+        return;
       }
+      await this.loadTodaysConditions();
+      await this.loadTasks();
+      await this.loadGroupInfo();
     },
 
     async addTask() {
@@ -1905,10 +1906,10 @@ function app() {
 
     // === medals & coupons ===
     async loadMedals() {
-      try { const d = await this.api('/medals/today'); this.medalsToday = d.count; } catch (_) {}
+      try { const d = await this.api('/medals/today'); this.medalsToday = d.count; } catch (e) { console.error('loadMedals failed', e); }
     },
     async loadCoupons() {
-      try { this.coupons = await this.api('/coupons'); } catch (_) {}
+      try { this.coupons = await this.api('/coupons'); } catch (e) { console.error('loadCoupons failed', e); }
     },
     openCouponExchange() {
       if (this.medalsToday < 5) return this.toast('至少需要 5 枚奖章才能兑换优惠券（当前 ' + this.medalsToday + ' 枚）', 'error');
@@ -1985,7 +1986,7 @@ function app() {
       try {
         const data = await this.api('/punish-limits');
         this.punishLimits = data.limits;
-      } catch (e) { /* ignore */ }
+      } catch (e) { console.error('loadPunishLimits failed', e); }
     },
 
     // === loan ===
@@ -1996,7 +1997,7 @@ function app() {
         const mine = data.find(d => d.child_id === this.childId);
         this.loanData = mine || null;
         await this.loadActiveLoans();
-      } catch (e) { /* ok */ }
+      } catch (e) { console.error('loadLoanStatus failed', e); }
     },
 
     async loadActiveLoans() {
@@ -2007,7 +2008,7 @@ function app() {
         for (const l of this.activeLoans) {
           if (!(l.id in this.repayAmounts)) this.repayAmounts[l.id] = l.total_owed;
         }
-      } catch (e) { /* ok */ }
+      } catch (e) { console.error('loadActiveLoans failed', e); }
     },
 
     async doBorrow() {
@@ -2235,11 +2236,11 @@ function app() {
           this.loadStats(),
           this.loadDailyReport(),
           this.loadTodaysConditions(),
+          this.loadPunishLimits(),
+          this.loadLoanStatus(),
+          this.loadMedals(),
+          this.loadCoupons(),
         ]);
-        this.loadPunishLimits();
-        this.loadLoanStatus();
-        this.loadMedals();
-        this.loadCoupons();
         this.pointsPop = true;
         setTimeout(() => this.pointsPop = false, 400);
       } catch (e) {
