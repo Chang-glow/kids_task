@@ -809,6 +809,7 @@ input:focus, select:focus {
         <div class="points-icon" style="display:flex;flex-direction:column;align-items:center;gap:4px;">
           <span style="font-size:2rem;">🏆</span>
           <span style="font-size:0.8rem;font-weight:900;color:rgba(255,255,255,0.9);white-space:nowrap;">🏅 <span x-text="medalsToday"></span> 章</span>
+          <span style="font-size:0.8rem;font-weight:900;color:rgba(255,255,255,0.9);white-space:nowrap;">💎 <span x-text="investmentMedalsToday"></span> 投</span>
         </div>
       </div>
 
@@ -1199,6 +1200,52 @@ input:focus, select:focus {
 
       </div><!-- grid-2 结束 -->
 
+      <!-- 投资系统 -->
+      <div class="card" style="margin-bottom:20px;background:linear-gradient(135deg,#fef3c7,#fde68a);border-color:#f59e0b;">
+        <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;">
+          <span>💎 投资中心</span>
+          <span style="font-size:0.85rem;font-weight:900;color:#92400e;">💎 <span x-text="investmentMedalsToday"></span> 章</span>
+        </div>
+        <div style="text-align:center;padding:8px 0;" x-show="investmentMedalsToday < 5">
+          <span style="color:#92400e;font-size:0.85rem;">完成 <b>5 种不同任务</b> 可兑换投资券（<span x-text="investmentMedalsToday"></span>/5）</span>
+        </div>
+        <button class="btn btn-sm" style="background:linear-gradient(135deg,#f59e0b,#d97706);color:white;width:100%;"
+                :disabled="investmentMedalsToday < 5"
+                @click="doInvestmentExchange()">💎 兑换投资券（5 章 → 1 张）</button>
+        <template x-if="investmentCoupons.length > 0">
+        <div style="margin-top:12px;">
+          <div style="font-weight:700;color:#92400e;margin-bottom:6px;">📜 我的投资券</div>
+          <template x-for="ic in investmentCoupons" :key="ic.id">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:white;border-radius:10px;margin-bottom:6px;border:2px solid #fcd34d;">
+              <span style="font-weight:900;color:#92400e;">💎 投资券</span>
+              <button class="btn btn-sm" style="background:linear-gradient(135deg,#f59e0b,#d97706);color:white;"
+                      @click="doUseInvestmentCoupon(ic.id)">📈 投资（-10分）</button>
+            </div>
+          </template>
+        </div>
+        </template>
+        <template x-if="activeInvestments.length > 0">
+        <div style="margin-top:12px;">
+          <div style="font-weight:700;color:#92400e;margin-bottom:6px;">📈 进行中的投资</div>
+          <template x-for="inv in activeInvestments" :key="inv.id">
+            <div style="padding:10px 14px;background:white;border-radius:10px;margin-bottom:6px;border:2px solid #f59e0b;">
+              <div style="display:flex;justify-content:space-between;align-items:center;font-weight:700;">
+                <span style="color:#92400e;">投入 <span x-text="inv.principal"></span> 分</span>
+                <span style="font-size:0.85rem;" x-text="'+' + Number(inv.total_earned).toFixed(1) + ' 分'"></span>
+              </div>
+              <div style="margin-top:4px;display:flex;align-items:center;gap:6px;">
+                <div style="flex:1;height:6px;background:#fde68a;border-radius:3px;overflow:hidden;">
+                  <div :style="'width:' + ((50 - inv.days_remaining) / 50 * 100) + '%;height:100%;background:linear-gradient(90deg,#f59e0b,#d97706);'"></div>
+                </div>
+                <span style="font-size:0.75rem;white-space:nowrap;color:#92400e;" x-text="'剩 ' + inv.days_remaining + ' 天'"></span>
+              </div>
+              <div style="font-size:0.75rem;color:#78716c;margin-top:2px;">每天 +0.5 分（攒满 1 分发放）</div>
+            </div>
+          </template>
+        </div>
+        </template>
+      </div>
+
       <!-- 贷款中心 -->
       <template x-if="loanData">
       <div class="card" style="margin-bottom:20px;">
@@ -1532,6 +1579,11 @@ function app() {
     couponModalOpen: false,
     couponUseModalOpen: false,
     activeCoupon: null,
+
+    // -- investment --
+    investmentMedalsToday: 0,
+    investmentCoupons: [],
+    activeInvestments: [],
 
     // -- stats / daily report --
     statsCache: null,
@@ -1974,6 +2026,55 @@ function app() {
       } catch (e) { this.toast(e.message, 'error'); }
     },
 
+    // === investment ===
+    async loadInvestmentMedals() {
+      if (!this.children.length) return;
+      try {
+        const d = await this.api('/investments/medals?child_id=' + this.children[0].id);
+        this.investmentMedalsToday = d.medals_today;
+      } catch (e) { console.error('loadInvestmentMedals failed', e); }
+    },
+    async loadInvestmentCoupons() {
+      if (!this.children.length) return;
+      try {
+        this.investmentCoupons = await this.api('/investments/coupons?child_id=' + this.children[0].id);
+      } catch (e) { console.error('loadInvestmentCoupons failed', e); }
+    },
+    async loadActiveInvestments() {
+      if (!this.children.length) return;
+      try {
+        this.activeInvestments = (await this.api('/investments/active?child_id=' + this.children[0].id)).investments;
+      } catch (e) { console.error('loadActiveInvestments failed', e); }
+    },
+    async doInvestmentExchange() {
+      if (this.investmentMedalsToday < 5) return this.toast('至少需要 5 枚投资章（完成 5 种不同任务）', 'error');
+      try {
+        const res = await this.api('/investments/exchange', 'POST', {
+          child_id: this.children[0].id, medal_count: 5
+        });
+        this.toast(`投资券兑换成功！获得 ${res.coupons_created} 张，剩余 ${res.medals_remaining} 章`);
+        await Promise.all([this.loadInvestmentMedals(), this.loadInvestmentCoupons()]);
+      } catch (e) { this.toast(e.message, 'error'); }
+    },
+    async doUseInvestmentCoupon(couponId) {
+      if (!confirm('使用投资券将扣除 10 分，开始 50 天每日收益（每天 +0.5 分，共 25 分）。确定？')) return;
+      try {
+        const res = await this.api('/investments/use', 'POST', {
+          child_id: this.children[0].id, coupon_id: couponId
+        });
+        this.toast(`投资成功！投入 ${res.principal} 分，每天 +0.5 分 × 50 天`);
+        await Promise.all([
+          this.loadGroupInfo(), this.loadInvestmentMedals(),
+          this.loadInvestmentCoupons(), this.loadActiveInvestments(),
+        ]);
+      } catch (e) { this.toast(e.message, 'error'); }
+    },
+    async loadAllInvestments() {
+      await Promise.all([
+        this.loadInvestmentMedals(), this.loadInvestmentCoupons(), this.loadActiveInvestments(),
+      ]);
+    },
+
     // === punish ===
     async addPunish() {
       const name = this.punishForm.name.trim();
@@ -2252,6 +2353,7 @@ function app() {
         this.loadLoanStatus();
         this.loadMedals();
         this.loadCoupons();
+        this.loadAllInvestments();
         this.pointsPop = true;
         setTimeout(() => this.pointsPop = false, 400);
       } catch (e) {

@@ -150,7 +150,7 @@
       <button class="tab" :class="{ active: tab === 'time' }" @click="tab = 'time'; loadSimulatedTime()">🕐 时间模拟</button>
       <button class="tab" :class="{ active: tab === 'boost' }" @click="tab = 'boost'; onActiveGroupChange()">🔥 限时翻倍</button>
       <button class="tab" :class="{ active: tab === 'pricing' }" @click="tab = 'pricing'; onActiveGroupChange()">⏰ 时段定价</button>
-      <button class="tab" :class="{ active: tab === 'coupons' }" @click="tab = 'coupons'; onActiveGroupChange()">🎟️ 优惠券</button>
+      <button class="tab" :class="{ active: tab === 'coupons' }" @click="tab = 'coupons'; onActiveGroupChange()">🎟️ 奖章 & 券</button>
       <button class="tab" :class="{ active: tab === 'conditions' }" @click="tab = 'conditions'; onActiveGroupChange()">🎯 附加条件</button>
       <button class="tab" :class="{ active: tab === 'manage' }" @click="tab = 'manage'; onActiveGroupChange()">📋 任务/奖励</button>
     </div>
@@ -521,10 +521,10 @@
       </div>
     </div>
 
-    <!-- ===== Tab: 优惠券管理 ===== -->
+    <!-- ===== Tab: 奖章 & 券管理 ===== -->
     <div x-show="tab === 'coupons'">
       <div class="card">
-        <h3>🎟️ 优惠券 & 奖章管理</h3>
+        <h3>🎟️ 奖章 & 券管理</h3>
         <select x-model="activeGroupId" @change="onActiveGroupChange()" style="margin-bottom:12px;">
           <option value="">请选择群组</option>
           <template x-for="g in groups" :key="g.id">
@@ -536,8 +536,8 @@
 
         <template x-if="activeGroupId">
           <div>
-            <!-- 奖章统计 -->
-            <h4>🏅 今日奖章</h4>
+            <!-- ===== 优惠券系统 ===== -->
+            <h4>🏅 今日奖章（折扣券）</h4>
             <table class="ops-table">
               <thead>
                 <tr><th>孩子</th><th>今日奖章</th><th>未使用优惠券</th></tr>
@@ -556,8 +556,7 @@
               </tbody>
             </table>
 
-            <!-- 优惠券列表 -->
-            <h4 style="margin-top:16px;">🎫 所有优惠券</h4>
+            <h4 style="margin-top:12px;">🎫 所有优惠券</h4>
             <table class="ops-table">
               <thead>
                 <tr><th>孩子</th><th>奖章数</th><th>额度</th><th>状态</th><th>创建时间</th></tr>
@@ -576,6 +575,75 @@
                       <span x-show="!c.used" style="color:#22c55e;">可用</span>
                     </td>
                     <td x-text="new Date(c.created_at).toLocaleString()"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+
+            <!-- ===== 投资系统 ===== -->
+            <hr style="margin: 20px 0; border: none; border-top: 2px dashed #e2e8f0;">
+
+            <h4>💎 今日投资章（投资券）</h4>
+            <table class="ops-table">
+              <thead>
+                <tr><th>孩子</th><th>今日投资章</th><th>未使用投资券</th><th>活跃投资</th></tr>
+              </thead>
+              <tbody>
+                <template x-if="!investmentStats.length">
+                  <tr><td colspan="4" class="stats-empty">📭 暂无数据</td></tr>
+                </template>
+                <template x-for="s in investmentStats" :key="s.child_id">
+                  <tr>
+                    <td x-text="s.emoji + ' ' + s.name"></td>
+                    <td><strong x-text="s.investment_medals_today"></strong> 枚</td>
+                    <td><strong x-text="s.investment_coupons_unused"></strong> 张</td>
+                    <td><strong x-text="s.active_investments"></strong> 个</td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+
+            <h4 style="margin-top:12px;">🎫 所有投资券</h4>
+            <table class="ops-table">
+              <thead>
+                <tr><th>孩子</th><th>奖章数</th><th>状态</th><th>创建时间</th><th>使用时间</th></tr>
+              </thead>
+              <tbody>
+                <template x-if="!allInvestmentCoupons.length">
+                  <tr><td colspan="5" class="stats-empty">📭 暂无投资券</td></tr>
+                </template>
+                <template x-for="c in allInvestmentCoupons" :key="c.id">
+                  <tr>
+                    <td x-text="c.child_name"></td>
+                    <td><strong x-text="c.medal_count + ' 章'"></strong></td>
+                    <td>
+                      <span x-show="c.used" style="color:#94a3b8;">已使用</span>
+                      <span x-show="!c.used" style="color:#22c55e;">可用</span>
+                    </td>
+                    <td x-text="new Date(c.created_at).toLocaleString()"></td>
+                    <td><span x-text="c.used_at ? new Date(c.used_at).toLocaleString() : '-'"></span></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+
+            <h4 style="margin-top:12px;">📈 活跃投资</h4>
+            <table class="ops-table">
+              <thead>
+                <tr><th>孩子</th><th>本金</th><th>日收益</th><th>剩余天数</th><th>已赚</th><th>最后发放</th></tr>
+              </thead>
+              <tbody>
+                <template x-if="!activeInvestmentsList.length">
+                  <tr><td colspan="6" class="stats-empty">📭 暂无活跃投资</td></tr>
+                </template>
+                <template x-for="inv in activeInvestmentsList" :key="inv.id">
+                  <tr>
+                    <td x-text="inv.child_name"></td>
+                    <td><strong x-text="inv.principal + ' 分'"></strong></td>
+                    <td><span x-text="inv.daily_income + ' 分/天'"></span></td>
+                    <td><strong x-text="inv.days_remaining + ' 天'"></strong></td>
+                    <td><span x-text="inv.total_earned + ' 分'"></span></td>
+                    <td><span x-text="inv.last_payout_date || '未发放'"></span></td>
                   </tr>
                 </template>
               </tbody>
@@ -838,6 +906,9 @@ function adminApp() {
     pricingOverrides: [],
     medalStats: [],
     allCoupons: [],
+    investmentStats: [],
+    allInvestmentCoupons: [],
+    activeInvestmentsList: [],
     pricingForm: { reward_id: '', override_type: 'lock_in', surge_peak_rate: 0.25, sale_trough_rate: 0.15, plateau_minutes: 0, partial_peak_factor: 1.0, duration_days: 0 },
 
     // Manage tab
@@ -960,19 +1031,14 @@ function adminApp() {
 
     async enterDashboard() {
       this.loading = true;
-      const resp = await fetch('/api/admin/groups', {
-        headers: { 'Authorization': 'Bearer ' + this.token },
-      });
-      if (resp.status === 401) {
-        localStorage.removeItem('admin_token');
-        this.token = '';
-        this.phase = 'login';
+      const data = await this.adminFetch('/api/admin/groups');
+      if (data) {
+        this.groups = data;
         this.loading = false;
-        return;
+        this.phase = 'dashboard';
+      } else {
+        this.loading = false;
       }
-      this.groups = await resp.json();
-      this.loading = false;
-      this.phase = 'dashboard';
     },
 
     logout() {
@@ -984,11 +1050,21 @@ function adminApp() {
       this.showChangePwd = false;
     },
 
+    // 统一 admin API 调用：自动附加 token + 401 拦截
+    async adminFetch(path) {
+      const resp = await fetch(path, {
+        headers: { 'Authorization': 'Bearer ' + this.token },
+      });
+      if (resp.status === 401) { this.logout(); return null; }
+      if (!resp.ok) return null;
+      return await resp.json();
+    },
+
     onActiveGroupChange() {
       if (!this.activeGroupId) return;
       if (this.tab === 'boost') this.loadBoostOverrides();
       else if (this.tab === 'pricing') this.loadPricingOverrides();
-      else if (this.tab === 'coupons') { this.loadMedalStats(); this.loadAllCoupons(); }
+      else if (this.tab === 'coupons') { this.loadMedalStats(); this.loadAllCoupons(); this.loadInvestmentStats(); this.loadAllInvestmentCoupons(); this.loadActiveInvestmentsList(); }
       else if (this.tab === 'conditions') this.loadConditions();
       else if (this.tab === 'manage') this.loadManageData();
     },
@@ -1066,10 +1142,8 @@ function adminApp() {
     // Operations
     async loadOperations() {
       if (!this.opGroupId) { this.operations = []; return; }
-      const resp = await fetch('/api/admin/operations?group_id=' + this.opGroupId, {
-        headers: { 'Authorization': 'Bearer ' + this.token },
-      });
-      this.operations = await resp.json();
+      const data = await this.adminFetch('/api/admin/operations?group_id=' + this.opGroupId);
+      if (data) this.operations = data;
     },
 
     async doUndo(opId) {
@@ -1169,14 +1243,11 @@ function adminApp() {
 
     // Loan settings
     async loadLoanSettings() {
-      try {
-        const resp = await fetch('/api/admin/loan-settings', {
-          headers: { 'Authorization': 'Bearer ' + this.token },
-        });
-        const data = await resp.json();
+      const data = await this.adminFetch('/api/admin/loan-settings');
+      if (data) {
         this.loanInterestRate = data.interest_rate;
         this.loanMaxAmount = data.max_amount;
-      } catch (e) { /* ignore */ }
+      }
     },
 
     async saveLoanSettings() {
@@ -1194,17 +1265,13 @@ function adminApp() {
     },
 
     async loadSimulatedTime() {
-      try {
-        const resp = await fetch('/api/admin/simulated-time', {
-          headers: { 'Authorization': 'Bearer ' + this.token },
-        });
-        const data = await resp.json();
+      const data = await this.adminFetch('/api/admin/simulated-time');
+      if (data) {
         this.simulatedActive = data.simulated;
         if (data.time) {
-          // datetime-local expects "YYYY-MM-DDTHH:MM"
           this.simulatedTime = data.time.substring(0, 16);
         }
-      } catch (e) { /* ignore */ }
+      }
     },
 
     async setSimulatedTime() {
@@ -1236,18 +1303,12 @@ function adminApp() {
     // === Boost Overrides ===
     async loadBoostOverrides() {
       if (!this.activeGroupId) return;
-      const headers = { 'Authorization': 'Bearer ' + this.token };
-      try {
-        const r = await fetch('/api/admin/boost-overrides?group_id=' + this.activeGroupId, { headers });
-        if (r.ok) { this.boostOverrides = await r.json(); }
-      } catch (e) { /* ignore */ }
-      try {
-        const r = await fetch('/api/admin/tasks?group_id=' + this.activeGroupId, { headers });
-        if (r.ok) {
-          const tasks = await r.json();
-          this.boostTasks = Array.isArray(tasks) ? tasks : [];
-        }
-      } catch (e) { /* ignore */ }
+      const [overrides, tasks] = await Promise.all([
+        this.adminFetch('/api/admin/boost-overrides?group_id=' + this.activeGroupId),
+        this.adminFetch('/api/admin/tasks?group_id=' + this.activeGroupId),
+      ]);
+      if (overrides) this.boostOverrides = overrides;
+      if (tasks) this.boostTasks = Array.isArray(tasks) ? tasks : [];
     },
 
     async saveBoostOverride() {
@@ -1276,18 +1337,12 @@ function adminApp() {
     // === Pricing ===
     async loadPricingOverrides() {
       if (!this.activeGroupId) return;
-      const headers = { 'Authorization': 'Bearer ' + this.token };
-      try {
-        const r = await fetch('/api/admin/pricing-overrides?group_id=' + this.activeGroupId, { headers });
-        if (r.ok) { this.pricingOverrides = await r.json(); }
-      } catch (e) { /* ignore */ }
-      try {
-        const r = await fetch('/api/admin/rewards?group_id=' + this.activeGroupId, { headers });
-        if (r.ok) {
-          const rewards = await r.json();
-          this.pricingRewards = Array.isArray(rewards) ? rewards : [];
-        }
-      } catch (e) { /* ignore */ }
+      const [overrides, rewards] = await Promise.all([
+        this.adminFetch('/api/admin/pricing-overrides?group_id=' + this.activeGroupId),
+        this.adminFetch('/api/admin/rewards?group_id=' + this.activeGroupId),
+      ]);
+      if (overrides) this.pricingOverrides = overrides;
+      if (rewards) this.pricingRewards = Array.isArray(rewards) ? rewards : [];
     },
 
     async savePricingOverride() {
@@ -1319,45 +1374,46 @@ function adminApp() {
     // === Medals & Coupons ===
     async loadMedalStats() {
       if (!this.activeGroupId) return;
-      const headers = { 'Authorization': 'Bearer ' + this.token };
-      try {
-        const r = await fetch('/api/admin/medals-stats?group_id=' + this.activeGroupId, { headers });
-        if (r.ok) this.medalStats = await r.json();
-      } catch (_) {}
+      const data = await this.adminFetch('/api/admin/medals-stats?group_id=' + this.activeGroupId);
+      if (data) this.medalStats = data;
     },
     async loadAllCoupons() {
       if (!this.activeGroupId) return;
-      const headers = { 'Authorization': 'Bearer ' + this.token };
-      try {
-        const r = await fetch('/api/admin/coupons?group_id=' + this.activeGroupId, { headers });
-        if (r.ok) this.allCoupons = await r.json();
-      } catch (_) {}
+      const data = await this.adminFetch('/api/admin/coupons?group_id=' + this.activeGroupId);
+      if (data) this.allCoupons = data;
+    },
+
+    // === Investments ===
+    async loadInvestmentStats() {
+      if (!this.activeGroupId) return;
+      const data = await this.adminFetch('/api/admin/investment-stats?group_id=' + this.activeGroupId);
+      if (data) this.investmentStats = data;
+    },
+    async loadAllInvestmentCoupons() {
+      if (!this.activeGroupId) return;
+      const data = await this.adminFetch('/api/admin/investment-coupons?group_id=' + this.activeGroupId);
+      if (data) this.allInvestmentCoupons = data;
+    },
+    async loadActiveInvestmentsList() {
+      if (!this.activeGroupId) return;
+      const data = await this.adminFetch('/api/admin/active-investments?group_id=' + this.activeGroupId);
+      if (data) this.activeInvestmentsList = data;
     },
 
     // === Conditions ===
     async loadConditions() {
       if (!this.activeGroupId) return;
-      const headers = { 'Authorization': 'Bearer ' + this.token };
-      // 分别加载条件和任务和覆盖设置，互不阻塞
-      try {
-        const r = await fetch('/api/admin/conditions?group_id=' + this.activeGroupId, { headers });
-        if (r.ok) { this.conditions = await r.json(); }
-      } catch (e) { /* 条件加载失败，保留旧数据 */ }
-      try {
-        const r = await fetch('/api/admin/tasks?group_id=' + this.activeGroupId, { headers });
-        if (r.ok) {
-          const tasks = await r.json();
-          this.condTasks = Array.isArray(tasks) ? tasks : [];
-        }
-      } catch (e) { /* 任务加载失败，保留旧数据 */ }
-      try {
-        const r = await fetch('/api/admin/condition-overrides?group_id=' + this.activeGroupId, { headers });
-        if (r.ok) {
-          const overrides = await r.json();
-          this.conditionOverrides = {};
-          overrides.forEach(o => { this.conditionOverrides[o.condition_id] = o; });
-        }
-      } catch (e) { /* 覆盖加载失败，保留旧数据 */ }
+      const [conditions, tasks, overrides] = await Promise.all([
+        this.adminFetch('/api/admin/conditions?group_id=' + this.activeGroupId),
+        this.adminFetch('/api/admin/tasks?group_id=' + this.activeGroupId),
+        this.adminFetch('/api/admin/condition-overrides?group_id=' + this.activeGroupId),
+      ]);
+      if (conditions) this.conditions = conditions;
+      if (tasks) this.condTasks = Array.isArray(tasks) ? tasks : [];
+      if (overrides) {
+        this.conditionOverrides = {};
+        overrides.forEach(o => { this.conditionOverrides[o.condition_id] = o; });
+      }
     },
 
     editCondition(c) {
@@ -1457,21 +1513,12 @@ function adminApp() {
     // === Manage Tasks/Rewards ===
     async loadManageData() {
       if (!this.activeGroupId) return;
-      const headers = { 'Authorization': 'Bearer ' + this.token };
-      try {
-        const r = await fetch('/api/admin/tasks?group_id=' + this.activeGroupId, { headers });
-        if (r.ok) {
-          const tasks = await r.json();
-          this.manageTasks = Array.isArray(tasks) ? tasks : [];
-        }
-      } catch (e) { /* ignore */ }
-      try {
-        const r = await fetch('/api/admin/rewards?group_id=' + this.activeGroupId, { headers });
-        if (r.ok) {
-          const rewards = await r.json();
-          this.manageRewards = Array.isArray(rewards) ? rewards : [];
-        }
-      } catch (e) { /* ignore */ }
+      const [tasks, rewards] = await Promise.all([
+        this.adminFetch('/api/admin/tasks?group_id=' + this.activeGroupId),
+        this.adminFetch('/api/admin/rewards?group_id=' + this.activeGroupId),
+      ]);
+      if (tasks) this.manageTasks = Array.isArray(tasks) ? tasks : [];
+      if (rewards) this.manageRewards = Array.isArray(rewards) ? rewards : [];
     },
 
     async addManageTask() {

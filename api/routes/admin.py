@@ -1371,3 +1371,48 @@ def admin_get_coupons(group_id: int, _token: str = Depends(_require_admin)):
     coupons = [dict(r) for r in cur.fetchall()]
     conn.close()
     return coupons
+
+
+@router.get("/investment-stats")
+def admin_get_investment_stats(group_id: int, _token: str = Depends(_require_admin)):
+    """Admin: 获取群组所有孩子的投资章、投资券和活跃投资统计。"""
+    from api.services.investment_service import get_all_investment_stats
+    conn = get_db()
+    cur = conn.cursor()
+    today = now_cst().date()
+    stats = get_all_investment_stats(cur, group_id, today)
+    conn.close()
+    return stats
+
+
+@router.get("/investment-coupons")
+def admin_get_investment_coupons(group_id: int, _token: str = Depends(_require_admin)):
+    """Admin: 查看群组所有投资券。"""
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        """SELECT ic.*, c.name AS child_name
+           FROM investment_coupons ic JOIN children c ON ic.child_id = c.id
+           WHERE ic.group_id = %s ORDER BY ic.created_at DESC""",
+        (group_id,),
+    )
+    coupons = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    return coupons
+
+
+@router.get("/active-investments")
+def admin_get_active_investments(group_id: int, _token: str = Depends(_require_admin)):
+    """Admin: 查看群组所有活跃投资。"""
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        """SELECT iv.*, c.name AS child_name
+           FROM investments iv JOIN children c ON iv.child_id = c.id
+           WHERE iv.group_id = %s AND iv.status = 'active'
+           ORDER BY iv.created_at DESC""",
+        (group_id,),
+    )
+    investments = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    return investments

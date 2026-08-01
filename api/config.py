@@ -3,7 +3,12 @@
 """
 
 import os
+import secrets
 from datetime import datetime, timezone, timedelta
+
+# JWT 签名密钥，Vercel 多实例共享同一密钥。
+# 生产环境通过 Vercel dashboard → Environment Variables 设置，本地通过 .env。
+JWT_SECRET = os.environ.get("JWT_SECRET", secrets.token_hex(32))
 
 # 数据库（环境变量优先，Vercel dashboard 或 .env 中设置）
 DATABASE_URL = os.environ.get(

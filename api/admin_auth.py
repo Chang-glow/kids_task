@@ -1,12 +1,15 @@
-"""Admin 认证：PBKDF2 密码哈希 + 内存 token 管理。"""
+"""Admin 认证：PBKDF2 密码哈希 + JWT 无状态 token 管理 + DB 撤销表。"""
 
 import hashlib
 import os
-import secrets
 import time
+import secrets
+from datetime import datetime, timezone
 
-# 内存 token 存储（重启失效）
-_active_tokens: dict[str, float] = {}  # token → expiry_timestamp
+import jwt
+
+from api.config import JWT_SECRET
+from api.models.database import get_db
 
 TOKEN_TTL = 3600 * 8  # 8 小时
 PBKDF2_ITERATIONS = 600_000
@@ -31,21 +34,73 @@ def verify_password(password: str, stored_hash: str) -> bool:
 
 
 def generate_token() -> str:
-    """生成随机 token 并存入内存，返回 token 字符串"""
-    token = secrets.token_hex(32)
-    _active_tokens[token] = time.time() + TOKEN_TTL
-    return token
+    """生成 JWT token，payload 含 jti（唯一 ID）和 exp（过期时间）。"""
+    now = int(time.time())
+    payload = {
+        "jti": secrets.token_hex(16),
+        "iat": now,
+        "exp": now + TOKEN_TTL,
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm="HS256")
+
+
+def _decode(token: str) -> dict | None:
+    """解码 JWT，返回 payload 或 None。不比对待撤销表（由调用方判断）。"""
+    try:
+        return jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+    except (jwt.ExpiredSignatureError, jwt.InvalidTokenError):
+        return None
+
+
+def _is_revoked(jti: str) -> bool:
+    """检查 jti 是否在撤销表中。"""
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("SELECT 1 FROM revoked_tokens WHERE jti = %s", (jti,))
+        result = cur.fetchone() is not None
+        conn.close()
+        return result
+    except Exception:
+        return True  # DB 不可达时宁严勿松：当作已撤销，拒绝 token
+
+
+def _cleanup_expired_revocations() -> None:
+    """清理已过期的撤销条目（token 本身已过期，撤销记录无保留价值）。"""
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("DELETE FROM revoked_tokens WHERE expires_at < %s", (datetime.now(timezone.utc),))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
 
 
 def validate_token(token: str) -> bool:
-    """验证 token 是否有效（存在且未过期）"""
-    if token not in _active_tokens:
+    """验证 JWT token 签名、过期时间、以及是否已被撤销。"""
+    payload = _decode(token)
+    if payload is None:
         return False
-    if time.time() > _active_tokens[token]:
-        del _active_tokens[token]
+    if _is_revoked(payload["jti"]):
         return False
+    _cleanup_expired_revocations()
     return True
 
 
 def invalidate_token(token: str) -> None:
-    _active_tokens.pop(token, None)
+    """将 token 的 jti 写入撤销表，实现服务端主动失效。
+    使用 JWT 的 exp 作为撤销条目过期时间——token 过期后撤销记录自动清理。"""
+    payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"],
+                         options={"verify_exp": False})
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO revoked_tokens (jti, expires_at) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+            (payload["jti"], datetime.fromtimestamp(payload["exp"], tz=timezone.utc)),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass

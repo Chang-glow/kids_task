@@ -72,6 +72,31 @@ def cron_daily_boost(secret: str = Query(None)):
         conn.close()
 
 
+@router.get("/cron/investment-payout")
+def cron_investment_payout(secret: str = Query(None)):
+    """Vercel Cron 每天触发：结算所有活跃投资的每日收益。"""
+    expected = os.environ.get("CRON_SECRET", "")
+    if not expected:
+        return {"success": False, "detail": "CRON_SECRET not configured"}
+    if secret != expected:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    from api.services.investment_service import process_daily_payouts
+
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        today = now_cst().date()
+        stats = process_daily_payouts(cur, today)
+        conn.commit()
+        return {"success": True, **stats}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 # 惩罚冷静期限制
 PUNISH_LIMITS = [
     (timedelta(minutes=10), 10),

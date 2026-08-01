@@ -356,6 +356,57 @@ def init_db():
     cur.execute("ALTER TABLE coupons DROP COLUMN IF EXISTS discount_pct")
     cur.execute("ALTER TABLE coupons ADD COLUMN IF NOT EXISTS medal_count INTEGER NOT NULL DEFAULT 5")
 
+    # ---- 投资章（每日清零，每种任务每天只给 1 枚）----
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS investment_medals (
+            id SERIAL PRIMARY KEY,
+            child_id INTEGER REFERENCES children(id) ON DELETE CASCADE,
+            group_id INTEGER REFERENCES family_groups(id),
+            task_id INTEGER REFERENCES tasks(id) ON DELETE CASCADE,
+            medal_date DATE NOT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+            UNIQUE(child_id, task_id, medal_date)
+        )
+    """)
+
+    # ---- 投资券 ----
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS investment_coupons (
+            id SERIAL PRIMARY KEY,
+            child_id INTEGER REFERENCES children(id) ON DELETE CASCADE,
+            group_id INTEGER REFERENCES family_groups(id),
+            medal_count INTEGER NOT NULL DEFAULT 5,
+            used BOOLEAN NOT NULL DEFAULT false,
+            created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+            used_at TIMESTAMP
+        )
+    """)
+
+    # ---- 活跃投资（每日收益）----
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS investments (
+            id SERIAL PRIMARY KEY,
+            child_id INTEGER REFERENCES children(id) ON DELETE CASCADE,
+            group_id INTEGER REFERENCES family_groups(id),
+            coupon_id INTEGER REFERENCES investment_coupons(id),
+            principal INTEGER NOT NULL DEFAULT 10,
+            daily_income NUMERIC(5,1) NOT NULL DEFAULT 0.5,
+            days_remaining INTEGER NOT NULL DEFAULT 50,
+            total_earned NUMERIC(10,1) NOT NULL DEFAULT 0,
+            last_payout_date DATE,
+            created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+            status TEXT NOT NULL DEFAULT 'active'
+        )
+    """)
+
+    # ---- JWT token 撤销表（退出登录时写入，验证时检查）----
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS revoked_tokens (
+            jti TEXT PRIMARY KEY,
+            expires_at TIMESTAMP NOT NULL
+        )
+    """)
+
     # ---- 兼容旧 users 表（只读，不再写入）----
     cur.execute("""
         CREATE TABLE IF NOT EXISTS users (

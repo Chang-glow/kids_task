@@ -9,10 +9,10 @@ from api.models.schemas import AddTaskRequest, CompleteTaskRequest, AcceptCondit
 from api.config import now_cst, STAR_MULTIPLIERS
 from api.services.point_service import calculate_final_points
 from api.services.boost_service import get_todays_boosts, ensure_daily_boosts
+from api.hooks import emit
 from api.services.condition_service import (
     ensure_daily_conditions, get_task_conditions,
     accept_condition, calculate_condition_result,
-    check_streak_on_complete, check_taskset_on_complete,
     ensure_taskset_progress, refresh_daily_conditions,
 )
 
@@ -118,6 +118,11 @@ def complete_task(req: CompleteTaskRequest, group_id: int = Depends(get_group_id
         else:
             final_points = calculate_final_points(task["base_points"], req.star_rating)
 
+        # 积分上限：所有翻倍/悬赏叠加后不超过基础分的 3 倍
+        max_points = task["base_points"] * 3
+        if final_points > max_points:
+            final_points = max_points
+
         multiplier_pct = int(STAR_MULTIPLIERS[req.star_rating] * 100)
 
         if task["is_repeatable"]:
@@ -170,20 +175,16 @@ def complete_task(req: CompleteTaskRequest, group_id: int = Depends(get_group_id
              json.dumps(undo_data), now),
         )
 
-        # 连续打卡 & 任务集合检测
+        # 扩展点：奖章、连击、任务集 — 由 hook handler 处理，可独立装卸
         effective_child = task["child_id"]
         if not effective_child:
             cur.execute("SELECT MIN(id) FROM children WHERE group_id = %s", (group_id,))
             child_row = cur.fetchone()
             effective_child = child_row["min"] if child_row else None
         if effective_child:
-            streak_results = check_streak_on_complete(cur, effective_child, group_id, req.task_id, today, now)
-            taskset_results = check_taskset_on_complete(cur, effective_child, group_id, req.task_id, today, now)
-
-        # 奖章：每完成一个任务奖励 1 枚
-        if effective_child:
-            from api.services.medal_service import award_medal
-            award_medal(cur, effective_child, group_id, today)
+            emit("after_task_complete_write",
+                 cur=cur, task=task, effective_child=effective_child,
+                 group_id=group_id, today=today, now=now)
 
         cur.execute("UPDATE users SET total_points = total_points + %s WHERE id = 1", (final_points,))
 

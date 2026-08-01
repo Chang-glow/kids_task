@@ -9,6 +9,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
 from api.models.database import init_db, load_simulated_time
+from api.hooks.builtins import register_all as register_builtin_hooks
+from api.hooks.investment_hooks import register_all as register_investment_hooks
 from api.routes.group import router as group_router
 from api.routes.tasks import router as task_router
 from api.routes.rewards import router as reward_router
@@ -17,6 +19,7 @@ from api.routes.children import router as children_router
 from api.routes.admin import router as admin_router
 from api.routes.loans import router as loan_router
 from api.routes.medals import router as medal_router
+from api.routes.investments import router as investment_router
 
 app = FastAPI(title="儿童积分系统")
 
@@ -35,6 +38,7 @@ app.include_router(children_router)
 app.include_router(admin_router)
 app.include_router(loan_router)
 app.include_router(medal_router)
+app.include_router(investment_router)
 
 # 静态文件（开发环境）
 root_dir = os.path.join(os.path.dirname(__file__), "..")
@@ -59,6 +63,8 @@ if os.path.isfile(os.path.join(root_dir, "index.html")):
 
 
 try:
+    register_builtin_hooks()
+    register_investment_hooks()
     init_db()
     load_simulated_time()
 except Exception:
