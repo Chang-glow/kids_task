@@ -1144,6 +1144,14 @@ input:focus, select:focus {
               <button class="btn btn-sm" style="background:linear-gradient(135deg,#38bdf8,#0ea5e9);color:white;box-shadow:0 4px 12px rgba(14,165,233,0.35);" @click="openCouponExchange()">🎟️ 兑换</button>
             </div>
 
+            <!-- 投资券兑换（常设第二位） -->
+            <div class="reward-item" style="background:linear-gradient(135deg,#fef3c7,#fde68a);border-color:#f59e0b;border-width:3px;box-shadow:0 0 16px rgba(245,158,11,0.3);">
+              <div class="r-emoji">💎</div>
+              <div class="r-name" style="color:#92400e;">投资券兑换</div>
+              <div class="r-cost" style="color:#b45309;">💎 5 章起兑</div>
+              <button class="btn btn-sm" style="background:linear-gradient(135deg,#f59e0b,#d97706);color:white;box-shadow:0 4px 12px rgba(217,119,6,0.35);" @click="couponType = 'investment'; investmentExchangeCount = Math.min(5, investmentMedalsToday); couponModalOpen = true">💎 兑换</button>
+            </div>
+
             <template x-if="!rewards.length && !coupons.length">
               <div class="empty" style="grid-column:1/-1"><span class="ei">🎁</span>还没有奖励，快来设定吧！</div>
             </template>
@@ -1181,70 +1189,68 @@ input:focus, select:focus {
           </div>
         </div>
 
-        <!-- 优惠券仓库 -->
-        <div class="card" style="margin-top:20px;" x-show="coupons.length > 0">
-          <div class="card-title">🎟️ 我的优惠券</div>
-          <template x-for="c in coupons" :key="c.id">
-            <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:linear-gradient(135deg,#e0f2fe,#bae6fd);border-radius:12px;margin-bottom:8px;border:2px solid #7dd3fc;">
-              <div>
-                <span style="font-weight:900;color:#0369a1;" x-text="'🎟️ ' + c.medal_count + ' 章'"></span>
-                <span style="font-size:0.85rem;color:#0284c7;font-weight:700;margin-left:8px;" x-text="'(额度 ' + (c.medal_count * 2) + '%)'"></span>
-              </div>
-              <div style="display:flex;gap:6px;">
-                <button class="btn btn-sm" style="background:linear-gradient(135deg,#38bdf8,#0ea5e9);color:white;" @click="openCouponUse(c)">🎯 使用</button>
-                <button class="btn btn-sm btn-danger" @click="deleteCoupon(c.id)">🗑️</button>
-              </div>
+        <!-- 统一券包 -->
+        <div class="card" style="margin-top:20px;" x-show="coupons.length > 0 || investmentCoupons.length > 0 || activeInvestments.length > 0">
+          <div class="card-title">🎟️ 我的券包</div>
+
+          <!-- 优惠券（章券） -->
+          <template x-if="coupons.length > 0">
+            <div style="margin-bottom:12px;">
+              <div style="font-weight:700;color:#0369a1;margin-bottom:6px;">🎟️ 优惠券</div>
+              <template x-for="c in coupons" :key="c.id">
+                <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:linear-gradient(135deg,#e0f2fe,#bae6fd);border-radius:12px;margin-bottom:8px;border:2px solid #7dd3fc;">
+                  <div>
+                    <span style="font-weight:900;color:#0369a1;" x-text="'🎟️ ' + c.medal_count + ' 章'"></span>
+                    <span style="font-size:0.85rem;color:#0284c7;font-weight:700;margin-left:8px;" x-text="'(额度 ' + couponDiscountPct(c.medal_count) + '%)'"></span>
+                  </div>
+                  <div style="display:flex;gap:6px;">
+                    <button class="btn btn-sm" style="background:linear-gradient(135deg,#38bdf8,#0ea5e9);color:white;" @click="openCouponUse(c)">🎯 使用</button>
+                    <button class="btn btn-sm btn-danger" @click="deleteCoupon(c.id)">🗑️</button>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </template>
+
+          <!-- 投资券 -->
+          <template x-if="investmentCoupons.length > 0">
+            <div style="margin-bottom:12px;">
+              <div style="font-weight:700;color:#92400e;margin-bottom:6px;">💎 投资券</div>
+              <template x-for="ic in investmentCoupons" :key="ic.id">
+                <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:linear-gradient(135deg,#fef3c7,#fde68a);border-radius:12px;margin-bottom:8px;border:2px solid #fcd34d;">
+                  <div>
+                    <span style="font-weight:900;color:#92400e;" x-text="'💎 投资券（' + (ic.medal_count || 5) + ' 章）'"></span>
+                  </div>
+                  <button class="btn btn-sm" style="background:linear-gradient(135deg,#f59e0b,#d97706);color:white;" @click="doUseInvestmentCoupon(ic.id)">📈 投资（-10分）</button>
+                </div>
+              </template>
+            </div>
+          </template>
+
+          <!-- 进行中的投资 -->
+          <template x-if="activeInvestments.length > 0">
+            <div>
+              <div style="font-weight:700;color:#92400e;margin-bottom:6px;">📈 进行中的投资</div>
+              <template x-for="inv in activeInvestments" :key="inv.id">
+                <div style="padding:10px 14px;background:white;border-radius:10px;margin-bottom:6px;border:2px solid #f59e0b;">
+                  <div style="display:flex;justify-content:space-between;align-items:center;font-weight:700;">
+                    <span style="color:#92400e;">投入 <span x-text="inv.principal"></span> 分</span>
+                    <span style="font-size:0.85rem;" x-text="'+' + Number(inv.total_earned).toFixed(1) + ' 分'"></span>
+                  </div>
+                  <div style="margin-top:4px;display:flex;align-items:center;gap:6px;">
+                    <div style="flex:1;height:6px;background:#fde68a;border-radius:3px;overflow:hidden;">
+                      <div :style="'width:' + ((50 - inv.days_remaining) / 50 * 100) + '%;height:100%;background:linear-gradient(90deg,#f59e0b,#d97706);'"></div>
+                    </div>
+                    <span style="font-size:0.75rem;white-space:nowrap;color:#92400e;" x-text="'剩 ' + inv.days_remaining + ' 天'"></span>
+                  </div>
+                  <div style="font-size:0.75rem;color:#78716c;margin-top:2px;">每天 +0.5 分（攒满 1 分发放）</div>
+                </div>
+              </template>
             </div>
           </template>
         </div>
 
       </div><!-- grid-2 结束 -->
-
-      <!-- 投资系统 -->
-      <div class="card" style="margin-bottom:20px;background:linear-gradient(135deg,#fef3c7,#fde68a);border-color:#f59e0b;">
-        <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;">
-          <span>💎 投资中心</span>
-          <span style="font-size:0.85rem;font-weight:900;color:#92400e;">💎 <span x-text="investmentMedalsToday"></span> 章</span>
-        </div>
-        <div style="text-align:center;padding:8px 0;" x-show="investmentMedalsToday < 5">
-          <span style="color:#92400e;font-size:0.85rem;">完成 <b>5 种不同任务</b> 可兑换投资券（<span x-text="investmentMedalsToday"></span>/5）</span>
-        </div>
-        <button class="btn btn-sm" style="background:linear-gradient(135deg,#f59e0b,#d97706);color:white;width:100%;"
-                :disabled="investmentMedalsToday < 5"
-                @click="doInvestmentExchange()">💎 兑换投资券（5 章 → 1 张）</button>
-        <template x-if="investmentCoupons.length > 0">
-        <div style="margin-top:12px;">
-          <div style="font-weight:700;color:#92400e;margin-bottom:6px;">📜 我的投资券</div>
-          <template x-for="ic in investmentCoupons" :key="ic.id">
-            <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:white;border-radius:10px;margin-bottom:6px;border:2px solid #fcd34d;">
-              <span style="font-weight:900;color:#92400e;">💎 投资券</span>
-              <button class="btn btn-sm" style="background:linear-gradient(135deg,#f59e0b,#d97706);color:white;"
-                      @click="doUseInvestmentCoupon(ic.id)">📈 投资（-10分）</button>
-            </div>
-          </template>
-        </div>
-        </template>
-        <template x-if="activeInvestments.length > 0">
-        <div style="margin-top:12px;">
-          <div style="font-weight:700;color:#92400e;margin-bottom:6px;">📈 进行中的投资</div>
-          <template x-for="inv in activeInvestments" :key="inv.id">
-            <div style="padding:10px 14px;background:white;border-radius:10px;margin-bottom:6px;border:2px solid #f59e0b;">
-              <div style="display:flex;justify-content:space-between;align-items:center;font-weight:700;">
-                <span style="color:#92400e;">投入 <span x-text="inv.principal"></span> 分</span>
-                <span style="font-size:0.85rem;" x-text="'+' + Number(inv.total_earned).toFixed(1) + ' 分'"></span>
-              </div>
-              <div style="margin-top:4px;display:flex;align-items:center;gap:6px;">
-                <div style="flex:1;height:6px;background:#fde68a;border-radius:3px;overflow:hidden;">
-                  <div :style="'width:' + ((50 - inv.days_remaining) / 50 * 100) + '%;height:100%;background:linear-gradient(90deg,#f59e0b,#d97706);'"></div>
-                </div>
-                <span style="font-size:0.75rem;white-space:nowrap;color:#92400e;" x-text="'剩 ' + inv.days_remaining + ' 天'"></span>
-              </div>
-              <div style="font-size:0.75rem;color:#78716c;margin-top:2px;">每天 +0.5 分（攒满 1 分发放）</div>
-            </div>
-          </template>
-        </div>
-        </template>
-      </div>
 
       <!-- 贷款中心 -->
       <template x-if="loanData">
@@ -1411,36 +1417,47 @@ input:focus, select:focus {
   </div>
 </div>
 
-<!-- 优惠券兑换弹窗 -->
+<!-- 统一兑换弹窗（优惠券 + 投资券） -->
 <div class="modal-overlay" :class="{ open: couponModalOpen }">
   <div class="modal">
-    <h3>🎟️ 兑换优惠券</h3>
-    <div style="font-size:0.9rem;color:#718096;font-weight:700;margin:8px 0;">5 章保底 10% 折扣，每加 1 章按斐波那契递增 (+3%, +5%, +8%, +13%...)</div>
-    <div style="font-size:1.1rem;font-weight:900;color:#0369a1;margin:12px 0;">🏅 当前拥有: <span x-text="medalsToday"></span> 枚奖章</div>
+    <h3 x-text="couponType === 'medal' ? '🎟️ 兑换优惠券' : '💎 兑换投资券'"></h3>
+    <div style="font-size:0.9rem;color:#718096;font-weight:700;margin:8px 0;" x-show="couponType === 'medal'">
+      5 章保底 10% 折扣，每加 1 章按斐波那契递增 (+3%, +5%, +8%, +13%...)
+    </div>
+    <div style="font-size:0.9rem;color:#718096;font-weight:700;margin:8px 0;" x-show="couponType === 'investment'">
+      5 枚投资章兑 1 张投资券，可叠加多张同时投资
+    </div>
+    <div style="font-size:1.1rem;font-weight:900;margin:12px 0;"
+         :style="couponType === 'medal' ? 'color:#0369a1' : 'color:#92400e'"
+         x-text="couponType === 'medal' ? ('🏅 当前拥有: ' + medalsToday + ' 枚奖章') : ('💎 当前拥有: ' + investmentMedalsToday + ' 枚投资章')"></div>
 
     <div style="display:flex;align-items:center;justify-content:center;gap:16px;margin:20px 0;">
       <button class="btn btn-sm" style="background:#e2e8f0;color:#4a5568;font-size:1.3rem;min-height:44px;width:44px;justify-content:center;"
-              @click="couponExchangeCount = Math.max(5, couponExchangeCount - 1)"
-              :disabled="couponExchangeCount <= 5">−</button>
+              @click="couponType === 'medal' ? (couponExchangeCount = Math.max(5, couponExchangeCount - 1)) : (investmentExchangeCount = Math.max(5, investmentExchangeCount - 1))"
+              :disabled="couponType === 'medal' ? (couponExchangeCount <= 5) : (investmentExchangeCount <= 5)">−</button>
       <div style="text-align:center;">
-        <input type="number" x-model.number="couponExchangeCount"
+        <input type="number" x-model.number="couponExchangeCount" x-show="couponType === 'medal'"
                style="width:80px;text-align:center;font-size:1.5rem;font-weight:900;"
                min="5" :max="medalsToday">
+        <input type="number" x-model.number="investmentExchangeCount" x-show="couponType === 'investment'"
+               style="width:80px;text-align:center;font-size:1.5rem;font-weight:900;"
+               min="5" :max="investmentMedalsToday">
         <div style="font-size:0.8rem;color:#718096;font-weight:700;">兑换数量</div>
       </div>
       <button class="btn btn-sm" style="background:#e2e8f0;color:#4a5568;font-size:1.3rem;min-height:44px;width:44px;justify-content:center;"
-              @click="couponExchangeCount = Math.min(medalsToday, couponExchangeCount + 1)"
-              :disabled="couponExchangeCount >= medalsToday">+</button>
+              @click="couponType === 'medal' ? (couponExchangeCount = Math.min(medalsToday, couponExchangeCount + 1)) : (investmentExchangeCount = Math.min(investmentMedalsToday, investmentExchangeCount + 1))"
+              :disabled="couponType === 'medal' ? (couponExchangeCount >= medalsToday) : (investmentExchangeCount >= investmentMedalsToday)">+</button>
     </div>
 
-    <div class="points-preview" style="background:linear-gradient(135deg,#e0f2fe,#bae6fd);color:#0369a1;">
+    <div class="points-preview" x-show="couponType === 'medal'"
+         style="background:linear-gradient(135deg,#e0f2fe,#bae6fd);color:#0369a1;">
       获得涨降价额度: <span style="font-size:1.5rem;font-weight:900;" x-text="couponDiscountPct(couponExchangeCount) + '%'"></span>
     </div>
 
     <div class="modal-actions">
       <button class="btn btn-danger" @click="couponModalOpen = false">取消</button>
       <button class="btn btn-purple" @click="doExchangeCoupon()"
-              :disabled="couponExchangeCount < 5 || couponExchangeCount > medalsToday">✅ 确认兑换</button>
+              :disabled="couponType === 'medal' ? (couponExchangeCount < 5 || couponExchangeCount > medalsToday) : (investmentExchangeCount < 5 || investmentExchangeCount > investmentMedalsToday)">✅ 确认兑换</button>
     </div>
   </div>
 </div>
@@ -1575,7 +1592,9 @@ function app() {
     // -- medals & coupons --
     medalsToday: 0,
     coupons: [],
+    couponType: 'medal',
     couponExchangeCount: 5,
+    investmentExchangeCount: 5,
     couponModalOpen: false,
     couponUseModalOpen: false,
     activeCoupon: null,
@@ -1974,18 +1993,32 @@ function app() {
       try { this.coupons = await this.api('/coupons'); } catch (e) { console.error('loadCoupons failed', e); }
     },
     openCouponExchange() {
+      this.couponType = 'medal';
       if (this.medalsToday < 5) return this.toast('至少需要 5 枚奖章才能兑换优惠券（当前 ' + this.medalsToday + ' 枚）', 'error');
       this.couponExchangeCount = Math.min(5, this.medalsToday);
       this.couponModalOpen = true;
     },
     async doExchangeCoupon() {
-      if (this.couponExchangeCount < 5) return this.toast('至少需要 5 枚奖章', 'error');
-      if (this.couponExchangeCount > this.medalsToday) return this.toast('奖章不足', 'error');
+      const isMedal = this.couponType === 'medal';
+      const count = isMedal ? this.couponExchangeCount : this.investmentExchangeCount;
+      const maxMedals = isMedal ? this.medalsToday : this.investmentMedalsToday;
+      if (count < 5) return this.toast('至少需要 5 枚', 'error');
+      if (count > maxMedals) return this.toast('数量不足', 'error');
       try {
-        const res = await this.api('/medals/exchange', 'POST', { medal_count: this.couponExchangeCount });
+        let res;
+        if (isMedal) {
+          res = await this.api('/medals/exchange', 'POST', { medal_count: count });
+        } else {
+          res = await this.api('/investments/exchange', 'POST', { child_id: this.childId, medal_count: count });
+        }
         this.couponModalOpen = false;
-        this.toast(`优惠券兑换成功！${this.couponExchangeCount} 章 → ${res.adjustment_pct}% 额度，剩余 ${res.medals_remaining} 章`);
-        await Promise.all([this.loadMedals(), this.loadCoupons()]);
+        if (isMedal) {
+          this.toast(`优惠券兑换成功！${count} 章 → ${res.adjustment_pct}% 额度，剩余 ${res.medals_remaining} 章`);
+          await Promise.all([this.loadMedals(), this.loadCoupons()]);
+        } else {
+          this.toast(`投资券兑换成功！获得 ${res.coupons_created} 张，剩余 ${res.medals_remaining} 章`);
+          await Promise.all([this.loadInvestmentMedals(), this.loadInvestmentCoupons()]);
+        }
       } catch (e) { this.toast(e.message, 'error'); }
     },
     openCouponUse(c) {
@@ -2028,39 +2061,30 @@ function app() {
 
     // === investment ===
     async loadInvestmentMedals() {
-      if (!this.children.length) return;
+      if (!this.childId) return;
       try {
-        const d = await this.api('/investments/medals?child_id=' + this.children[0].id);
+        const d = await this.api('/investments/medals?child_id=' + this.childId);
         this.investmentMedalsToday = d.medals_today;
       } catch (e) { console.error('loadInvestmentMedals failed', e); }
     },
     async loadInvestmentCoupons() {
-      if (!this.children.length) return;
+      if (!this.childId) return;
       try {
-        this.investmentCoupons = await this.api('/investments/coupons?child_id=' + this.children[0].id);
+        const data = await this.api('/investments/coupons?child_id=' + this.childId);
+        this.investmentCoupons = data.coupons || [];
       } catch (e) { console.error('loadInvestmentCoupons failed', e); }
     },
     async loadActiveInvestments() {
-      if (!this.children.length) return;
+      if (!this.childId) return;
       try {
-        this.activeInvestments = (await this.api('/investments/active?child_id=' + this.children[0].id)).investments;
+        this.activeInvestments = (await this.api('/investments/active?child_id=' + this.childId)).investments;
       } catch (e) { console.error('loadActiveInvestments failed', e); }
-    },
-    async doInvestmentExchange() {
-      if (this.investmentMedalsToday < 5) return this.toast('至少需要 5 枚投资章（完成 5 种不同任务）', 'error');
-      try {
-        const res = await this.api('/investments/exchange', 'POST', {
-          child_id: this.children[0].id, medal_count: 5
-        });
-        this.toast(`投资券兑换成功！获得 ${res.coupons_created} 张，剩余 ${res.medals_remaining} 章`);
-        await Promise.all([this.loadInvestmentMedals(), this.loadInvestmentCoupons()]);
-      } catch (e) { this.toast(e.message, 'error'); }
     },
     async doUseInvestmentCoupon(couponId) {
       if (!confirm('使用投资券将扣除 10 分，开始 50 天每日收益（每天 +0.5 分，共 25 分）。确定？')) return;
       try {
         const res = await this.api('/investments/use', 'POST', {
-          child_id: this.children[0].id, coupon_id: couponId
+          child_id: this.childId, coupon_id: couponId
         });
         this.toast(`投资成功！投入 ${res.principal} 分，每天 +0.5 分 × 50 天`);
         await Promise.all([
