@@ -163,6 +163,20 @@ def select_daily_pricing(cur, group_id: int, today: date) -> list[dict]:
         params["reward_id"] = rid
         result.append(params)
 
+    # 兜底: 至少一个奖励参与时段涨跌，防止全平盘被误判为 bug
+    if result and all(p.get("is_flat", False) for p in result):
+        lock_out_ids = {rid for rid, ov in overrides.items() if ov["override_type"] == "lock_out"}
+        eligible = [i for i, p in enumerate(result) if p["reward_id"] not in lock_out_ids]
+        if eligible:
+            pick_rng = random.Random(_deterministic_seed(0, date_str, group_id))
+            idx = pick_rng.choice(eligible)
+            rid = result[idx]["reward_id"]
+            rng = random.Random(_deterministic_seed(rid, date_str + ":floor", group_id))
+            params = _random_params(rng)
+            params["is_flat"] = False
+            params["reward_id"] = rid
+            result[idx] = params
+
     return result
 
 

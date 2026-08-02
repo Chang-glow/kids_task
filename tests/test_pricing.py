@@ -259,6 +259,31 @@ class TestPricingService:
                 assert r["surged_cost"] == expected, \
                     f"surged_cost={r['surged_cost']} != expected={expected} (rate={r['pricing_rate']})"
 
+    def test_floor_ensures_at_least_one_non_flat(self, client, group_ctx):
+        """当所有奖励随机到 is_flat 时，兜底强制至少一个参与波动。"""
+        from unittest import mock
+        from api.services import pricing_service
+
+        h = group_ctx["headers"]
+        for i in range(5):
+            client.post(
+                "/api/rewards",
+                json={"name": f"F{i}", "emoji": "🎁", "cost_points": 10},
+                headers=h,
+            )
+
+        # 强制 _random_params 始终返回 is_flat=True
+        always_flat = {"is_flat": True}
+        with mock.patch.object(pricing_service, "_random_params", return_value=always_flat):
+            res = client.get("/api/rewards/pricing/today", headers=h)
+        assert res.status_code == 200
+
+        pricing = res.json()
+        assert len(pricing) >= 1
+        flat_count = sum(1 for v in pricing.values() if v["is_flat"])
+        assert flat_count < len(pricing), \
+            f"All {len(pricing)} rewards are flat; floor should have forced at least 1 non-flat"
+
 
 class TestPricingRedeem:
     """Redeem with time-based pricing."""
