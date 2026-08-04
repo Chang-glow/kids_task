@@ -98,6 +98,13 @@ def redeem_reward(req: RedeemRewardRequest, group_id: int = Depends(get_group_id
         if not reward:
             raise HTTPException(status_code=404, detail="奖励不存在")
 
+        # Get first child
+        cur.execute("SELECT id, total_points FROM children WHERE group_id = %s ORDER BY id LIMIT 1", (group_id,))
+        child = cur.fetchone()
+        if not child:
+            raise HTTPException(status_code=400, detail="群组中没有孩子")
+        current_points = child["total_points"]
+
         # 奖励锁检查：所有钥匙任务今日均完成才可兑换
         from api.services.lock_service import check_reward_unlocked
         unlocked, lock_reason = check_reward_unlocked(cur, req.reward_id, group_id, now_cst().date())
@@ -106,21 +113,14 @@ def redeem_reward(req: RedeemRewardRequest, group_id: int = Depends(get_group_id
         unlock_coupon = None
         if not unlocked and req.investment_coupon_id is not None:
             cur.execute(
-                "SELECT * FROM investment_coupons WHERE id = %s AND group_id = %s AND used = false",
-                (req.investment_coupon_id, group_id),
+                "SELECT * FROM investment_coupons WHERE id = %s AND child_id = %s AND group_id = %s AND used = false",
+                (req.investment_coupon_id, child["id"], group_id),
             )
             unlock_coupon = cur.fetchone()
             if not unlock_coupon:
                 raise HTTPException(status_code=400, detail="解锁券不存在或已使用")
         elif not unlocked:
             raise HTTPException(status_code=403, detail=lock_reason)
-
-        # Get first child's points
-        cur.execute("SELECT id, total_points FROM children WHERE group_id = %s ORDER BY id LIMIT 1", (group_id,))
-        child = cur.fetchone()
-        if not child:
-            raise HTTPException(status_code=400, detail="群组中没有孩子")
-        current_points = child["total_points"]
 
         # 优惠券校验
         coupon = None
