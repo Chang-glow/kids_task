@@ -24,6 +24,22 @@ def get_rewards(group_id: int = Depends(get_group_id)):
 
     cur.execute("SELECT * FROM rewards WHERE group_id = %s ORDER BY cost_points ASC", (group_id,))
     rewards = cur.fetchall()
+
+    # 批量加载所有奖励的锁信息
+    from api.services.lock_service import get_reward_locks
+    locks_by_reward = {}
+    for r in rewards:
+        locks = get_reward_locks(cur, r["id"], group_id)
+        pending = []
+        for lk in locks:
+            if lk["key_task_status"] == "done":
+                cd = lk["completed_at"].date() if lk["completed_at"] else None
+                if cd == today:
+                    continue
+            pending.append(lk["key_task_name"])
+        locks_by_reward[r["id"]] = {"locked": len(pending) > 0, "pending_tasks": pending,
+                                     "total_keys": len(locks)} if locks else None
+
     conn.commit()
     conn.close()
 
@@ -41,6 +57,7 @@ def get_rewards(group_id: int = Depends(get_group_id)):
         else:
             d["pricing_rate"] = 0.0
             d["surged_cost"] = None
+        d["lock"] = locks_by_reward.get(r["id"])
         result.append(d)
     return result
 
@@ -77,6 +94,12 @@ def redeem_reward(req: RedeemRewardRequest, group_id: int = Depends(get_group_id
         reward = cur.fetchone()
         if not reward:
             raise HTTPException(status_code=404, detail="奖励不存在")
+
+        # 奖励锁检查：所有钥匙任务今日均完成才可兑换
+        from api.services.lock_service import check_reward_unlocked
+        unlocked, lock_reason = check_reward_unlocked(cur, req.reward_id, group_id, now_cst().date())
+        if not unlocked:
+            raise HTTPException(status_code=403, detail=lock_reason)
 
         # Get first child's points
         cur.execute("SELECT id, total_points FROM children WHERE group_id = %s ORDER BY id LIMIT 1", (group_id,))

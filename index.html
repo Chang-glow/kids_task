@@ -1176,12 +1176,27 @@ input:focus, select:focus {
                     🪙 <span x-text="r.cost_points"></span> 分
                   </template>
                 </div>
+                <!-- 锁状态 -->
+                <template x-if="r.lock">
+                  <div style="margin-top:4px;font-size:0.72rem;">
+                    <template x-if="r.lock.locked">
+                      <div style="color:#e53e3e;line-height:1.4;">
+                        🔒 需先完成：<span x-text="r.lock.pending_tasks.join('、')"></span>
+                      </div>
+                    </template>
+                    <template x-if="!r.lock.locked">
+                      <div style="color:#38a169;">🔓 已解锁</div>
+                    </template>
+                  </div>
+                </template>
                 <button class="btn btn-sm"
-                        :class="currentPoints >= (r.surged_cost || r.cost_points) ? 'btn-orange' : 'btn-danger'"
-                        :style="currentPoints < (r.surged_cost || r.cost_points) ? 'opacity:0.6' : ''"
-                        @click="redeemReward(r)">
-                  <span x-show="currentPoints >= (r.surged_cost || r.cost_points)">🎁 兑换</span>
-                  <span x-show="currentPoints < (r.surged_cost || r.cost_points)">😢 不够</span>
+                        :class="currentPoints >= (r.surged_cost || r.cost_points) && !(r.lock && r.lock.locked) ? 'btn-orange' : 'btn-danger'"
+                        :style="(currentPoints < (r.surged_cost || r.cost_points) || (r.lock && r.lock.locked)) ? 'opacity:0.6' : ''"
+                        @click="redeemReward(r)"
+                        :disabled="r.lock && r.lock.locked">
+                  <span x-show="r.lock && r.lock.locked">🔒 锁定</span>
+                  <span x-show="!(r.lock && r.lock.locked) && currentPoints >= (r.surged_cost || r.cost_points)">🎁 兑换</span>
+                  <span x-show="!(r.lock && r.lock.locked) && currentPoints < (r.surged_cost || r.cost_points)">😢 不够</span>
                 </button>
                 <button class="btn btn-sm btn-danger" style="margin-top:6px;width:100%;" @click="deleteReward(r.id)">🗑️ 删除</button>
               </div>

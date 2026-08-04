@@ -579,6 +579,14 @@ def admin_rewards(group_id: int, _token: str = Depends(_require_admin)):
     cur = conn.cursor()
     cur.execute("SELECT * FROM rewards WHERE group_id = %s ORDER BY cost_points ASC", (group_id,))
     rewards = [dict(r) for r in cur.fetchall()]
+
+    # 注入锁信息
+    from api.services.lock_service import get_reward_locks
+    for r in rewards:
+        locks = get_reward_locks(cur, r["id"], group_id)
+        r["lock_tasks"] = [lk["key_task_name"] for lk in locks]
+        r["lock_task_ids"] = [lk["task_id"] for lk in locks]
+
     conn.close()
     return rewards
 
@@ -1340,6 +1348,65 @@ def admin_delete_reward(group_id: int, reward_id: int, _token: str = Depends(_re
     conn.commit()
     conn.close()
     return {"success": True}
+
+
+# ---- 奖励锁管理 ----
+
+
+@router.get("/reward-locks")
+def admin_get_reward_locks(group_id: int, _token: str = Depends(_require_admin)):
+    """Admin: 获取群组所有奖励锁。"""
+    from api.services.lock_service import get_all_locks
+    conn = get_db()
+    cur = conn.cursor()
+    locks = get_all_locks(cur, group_id)
+    conn.close()
+    return locks
+
+
+@router.post("/reward-locks")
+def admin_add_reward_lock(req: dict, _token: str = Depends(_require_admin)):
+    """Admin: 为奖励添加钥匙任务绑定。"""
+    reward_id = req.get("reward_id")
+    task_id = req.get("task_id")
+    group_id = req.get("group_id")
+    if not reward_id or not task_id or not group_id:
+        raise HTTPException(status_code=400, detail="缺少 reward_id / task_id / group_id")
+    from api.services.lock_service import add_reward_lock
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        result = add_reward_lock(cur, reward_id, task_id, group_id)
+        conn.commit()
+        return result
+    except Exception:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail="服务器内部错误")
+    finally:
+        conn.close()
+
+
+@router.delete("/reward-locks/{reward_id}")
+def admin_remove_reward_lock(reward_id: int, group_id: int, task_id: int = None,
+                             _token: str = Depends(_require_admin)):
+    """Admin: 解除奖励的钥匙绑定。传 task_id 则只删该任务，不传则删除所有。"""
+    if not group_id:
+        raise HTTPException(status_code=400, detail="缺少 group_id")
+    from api.services.lock_service import remove_reward_lock, remove_all_reward_locks
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        if task_id:
+            result = remove_reward_lock(cur, reward_id, task_id, group_id)
+        else:
+            result = remove_all_reward_locks(cur, reward_id, group_id)
+        conn.commit()
+        return result
+    except Exception:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail="服务器内部错误")
+    finally:
+        conn.close()
 
 
 # ---- 奖章 & 优惠券管理 ----

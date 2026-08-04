@@ -399,6 +399,30 @@ def init_db():
         )
     """)
 
+    # ---- 奖励锁（admin 绑定任务作钥匙，全部完成前不可兑换）----
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS reward_locks (
+            id SERIAL PRIMARY KEY,
+            reward_id INTEGER REFERENCES rewards(id) ON DELETE CASCADE,
+            task_id INTEGER REFERENCES tasks(id) ON DELETE CASCADE,
+            group_id INTEGER REFERENCES family_groups(id),
+            created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+            UNIQUE(reward_id, task_id)
+        )
+    """)
+    # 迁移：旧版 reward_locks 的 UNIQUE(reward_id) 改为 UNIQUE(reward_id, task_id)
+    cur.execute("""
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1 FROM pg_constraint WHERE conname = 'reward_locks_reward_id_key'
+            ) THEN
+                ALTER TABLE reward_locks DROP CONSTRAINT reward_locks_reward_id_key;
+                ALTER TABLE reward_locks ADD CONSTRAINT reward_locks_reward_id_task_id_key UNIQUE (reward_id, task_id);
+            END IF;
+        END $$;
+    """)
+
     # ---- JWT token 撤销表（退出登录时写入，验证时检查）----
     cur.execute("""
         CREATE TABLE IF NOT EXISTS revoked_tokens (

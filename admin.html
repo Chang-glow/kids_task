@@ -823,17 +823,66 @@
               </div>
             </div>
             <table class="stats-table" x-show="manageRewards.length > 0">
-              <thead><tr><th>名称</th><th>所需积分</th><th>操作</th></tr></thead>
+              <thead><tr><th>名称</th><th>所需积分</th><th>🔒 钥匙</th><th>操作</th></tr></thead>
               <tbody>
                 <template x-for="r in manageRewards" :key="r.id">
                   <tr>
                     <td><span x-text="r.emoji + ' ' + r.name"></span></td>
                     <td x-text="r.cost_points"></td>
+                    <td style="font-size:0.78rem;">
+                      <template x-if="r.lock_tasks && r.lock_tasks.length > 0">
+                        <span>
+                          <span x-text="r.lock_tasks.join('、')" style="color:#e53e3e;"></span>
+                          <button class="btn btn-sm" style="background:none;border:none;font-size:0.7rem;margin-left:4px;"
+                                  @click="removeAllRewardLocks(r.id)" title="清除所有钥匙">✕</button>
+                        </span>
+                      </template>
+                      <template x-if="!r.lock_tasks || r.lock_tasks.length === 0">
+                        <span style="color:#a0aec0;">无</span>
+                      </template>
+                      <button class="btn btn-sm" style="margin-left:6px;background:#805ad5;color:#fff;font-size:0.7rem;"
+                              @click="lockModalReward = r">+ 钥匙</button>
+                    </td>
                     <td><button class="btn btn-sm btn-danger" @click="deleteManageReward(r.id)">删除</button></td>
                   </tr>
                 </template>
               </tbody>
             </table>
+
+            <!-- 钥匙管理弹窗 -->
+            <div x-show="lockModalReward" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:1000;display:flex;align-items:center;justify-content:center;" @click.self="lockModalReward = null">
+              <div style="background:#fff;border-radius:16px;padding:24px;max-width:420px;width:90%;">
+                <h4 style="margin-bottom:8px;">🔒 钥匙管理 — <span x-text="lockModalReward.emoji + ' ' + lockModalReward.name"></span></h4>
+                <p style="font-size:0.82rem;color:#718096;margin-bottom:12px;">绑定任务作为钥匙，当日完成所有钥匙任务后才能兑换此奖励。</p>
+                <div style="margin-bottom:12px;">
+                  <div style="font-weight:700;margin-bottom:4px;">当前钥匙任务：</div>
+                  <template x-if="lockModalReward.lock_tasks && lockModalReward.lock_tasks.length > 0">
+                    <div>
+                      <template x-for="(tname, idx) in lockModalReward.lock_tasks" :key="idx">
+                        <span style="display:inline-block;background:#fed7d7;color:#c53030;padding:2px 8px;border-radius:8px;margin:2px;font-size:0.78rem;">
+                          <span x-text="tname"></span>
+                          <button style="background:none;border:none;cursor:pointer;margin-left:4px;"
+                                  @click="removeRewardLock(lockModalReward.id, lockModalReward.lock_task_ids[idx])">✕</button>
+                        </span>
+                      </template>
+                    </div>
+                  </template>
+                  <template x-if="!lockModalReward.lock_tasks || lockModalReward.lock_tasks.length === 0">
+                    <span style="color:#a0aec0;font-size:0.82rem;">暂无</span>
+                  </template>
+                </div>
+                <div style="display:flex;gap:8px;">
+                  <select x-ref="lockTaskSelect" style="flex:1;">
+                    <option value="">选择任务...</option>
+                    <template x-for="t in manageTasks" :key="t.id">
+                      <option :value="t.id" x-text="t.emoji + ' ' + t.name"></option>
+                    </template>
+                  </select>
+                  <button class="btn btn-primary btn-sm" @click="addRewardLock(lockModalReward.id)">添加</button>
+                </div>
+                <button class="btn btn-sm" style="margin-top:12px;width:100%;" @click="lockModalReward = null">关闭</button>
+              </div>
+            </div>
           </div>
         </template>
       </div>
@@ -917,6 +966,7 @@ function adminApp() {
     manageTaskForm: { name: '', emoji: '📖', base_points: 20, description: '', is_repeatable: false },
     manageRewardForm: { name: '', emoji: '📺', cost_points: 50 },
     editingTaskId: null,
+    lockModalReward: null,
 
     // Toast
     toast: '',
@@ -1609,6 +1659,45 @@ function adminApp() {
       await fetch('/api/admin/groups/' + this.activeGroupId + '/rewards/' + id, { method: 'DELETE', headers: { 'Authorization': 'Bearer ' + this.token } });
       this.loadManageData();
       this.showToast('奖励已删除');
+    },
+
+    // Lock management
+    async addRewardLock(rewardId) {
+      const select = this.$refs.lockTaskSelect;
+      const taskId = select ? select.value : '';
+      if (!taskId) return this.showToast('请选择任务', 'error');
+      const resp = await fetch('/api/admin/reward-locks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + this.token },
+        body: JSON.stringify({ reward_id: rewardId, task_id: parseInt(taskId), group_id: parseInt(this.activeGroupId) }),
+      });
+      if (!resp.ok) { const d = await resp.json(); this.showToast(d.detail || '添加失败', 'error'); return; }
+      await this.loadManageData();
+      // Refresh lockModalReward
+      const updated = this.manageRewards.find(r => r.id === rewardId);
+      if (updated) this.lockModalReward = updated;
+      this.showToast('钥匙已添加');
+    },
+    async removeRewardLock(rewardId, taskId) {
+      const resp = await fetch('/api/admin/reward-locks/' + rewardId + '?group_id=' + this.activeGroupId + '&task_id=' + taskId, {
+        method: 'DELETE',
+        headers: { 'Authorization': 'Bearer ' + this.token },
+      });
+      if (!resp.ok) { const d = await resp.json(); this.showToast(d.detail || '删除失败', 'error'); return; }
+      await this.loadManageData();
+      const updated = this.manageRewards.find(r => r.id === rewardId);
+      if (updated) this.lockModalReward = updated;
+      this.showToast('钥匙已移除');
+    },
+    async removeAllRewardLocks(rewardId) {
+      if (!confirm('确定清除此奖励的所有钥匙？')) return;
+      const resp = await fetch('/api/admin/reward-locks/' + rewardId + '?group_id=' + this.activeGroupId, {
+        method: 'DELETE',
+        headers: { 'Authorization': 'Bearer ' + this.token },
+      });
+      if (!resp.ok) { const d = await resp.json(); this.showToast(d.detail || '删除失败', 'error'); return; }
+      await this.loadManageData();
+      this.showToast('钥匙已清除');
     },
 
     // Helpers
