@@ -1,5 +1,6 @@
 """Hook 注册器 — 观察者模式，同步执行，异常隔离。"""
 
+import traceback
 from typing import Any, Callable
 
 _registry: dict[str, list[Callable]] = {}
@@ -17,7 +18,7 @@ def emit(event: str, **kwargs) -> list[Any]:
         try:
             results.append(h(**kwargs))
         except Exception:
-            pass
+            traceback.print_exc()
     return results
 
 
