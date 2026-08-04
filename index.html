@@ -1924,7 +1924,7 @@ function app() {
         const res = await this.api(`/tasks/complete`, 'POST', body);
         this.closeModal();
         this.toast(res.message);
-        await Promise.all([this.loadTasks(), this.loadGroupInfo(), this.loadLogs(true), this.loadMedals()]);
+        await Promise.all([this.loadTasks(), this.loadGroupInfo(), this.loadLogs(true), this.loadMedals(), this.loadInvestmentMedals()]);
       } catch (e) {
         this.toast(e.message, 'error');
       }
@@ -1972,7 +1972,7 @@ function app() {
       try {
         const res = await this.api(`/rewards/redeem`, 'POST', { reward_id: r.id });
         this.toast(res.message);
-        await Promise.all([this.loadGroupInfo(), this.loadRewards(), this.loadLogs(true), this.loadMedals(), this.loadCoupons()]);
+        await Promise.all([this.loadGroupInfo(), this.loadRewards(), this.loadLogs(true), this.loadMedals(), this.loadCoupons(), this.loadInvestmentMedals()]);
       } catch (e) { this.toast(e.message, 'error'); }
     },
 
@@ -2047,7 +2047,7 @@ function app() {
         this.couponUseModalOpen = false;
         this.activeCoupon = null;
         this.toast(res.message);
-        await Promise.all([this.loadGroupInfo(), this.loadRewards(), this.loadLogs(true), this.loadMedals(), this.loadCoupons()]);
+        await Promise.all([this.loadGroupInfo(), this.loadRewards(), this.loadLogs(true), this.loadMedals(), this.loadCoupons(), this.loadInvestmentMedals()]);
       } catch (e) { this.toast(e.message, 'error'); }
     },
     async deleteCoupon(id) {
