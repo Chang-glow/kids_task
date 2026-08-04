@@ -53,7 +53,12 @@ def _decode(token: str) -> dict | None:
 
 
 def _is_revoked(jti: str) -> bool:
-    """检查 jti 是否在撤销表中。"""
+    """检查 jti 是否在撤销表中。
+
+    异常策略：
+    - 表不存在（init_db 未完成）→ 放行（fail open），否则 admin 完全不可用
+    - 连接失败等其它错误 → 拒绝（fail closed），宁严勿松
+    """
     try:
         conn = get_db()
         cur = conn.cursor()
@@ -61,8 +66,15 @@ def _is_revoked(jti: str) -> bool:
         result = cur.fetchone() is not None
         conn.close()
         return result
-    except Exception:
-        return True  # DB 不可达时宁严勿松：当作已撤销，拒绝 token
+    except Exception as e:
+        # 表不存在 = init_db 没跑完，不是安全威胁，放行
+        if hasattr(e, 'pgcode') and getattr(e, 'pgcode', None) == '42P01':
+            return False
+        # UndefinedTable 也可能不以 pgcode 形式暴露，检查消息
+        msg = str(e)
+        if 'relation' in msg and 'does not exist' in msg:
+            return False
+        return True  # 真正的 DB 不可达，宁严勿松
 
 
 def _cleanup_expired_revocations() -> None:

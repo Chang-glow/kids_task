@@ -51,6 +51,7 @@ def _cleanup_test_data():
             cur.execute("DELETE FROM investments WHERE group_id IN %s", (ids,))
             cur.execute("DELETE FROM investment_coupons WHERE group_id IN %s", (ids,))
             cur.execute("DELETE FROM investment_medals WHERE group_id IN %s", (ids,))
+            cur.execute("DELETE FROM reward_locks WHERE group_id IN %s", (ids,))
             cur.execute("DELETE FROM undo_operations WHERE group_id IN %s", (ids,))
             cur.execute("DELETE FROM point_logs WHERE group_id IN %s", (ids,))
             cur.execute("DELETE FROM loans WHERE group_id IN %s", (ids,))

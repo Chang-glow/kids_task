@@ -3,31 +3,120 @@
 通过 config.DATABASE_URL 获取连接，方便切换云数据库。
 """
 
+import time
 import psycopg2
 from psycopg2.extras import RealDictCursor
+from psycopg2.pool import ThreadedConnectionPool
 from api.config import DATABASE_URL
 
 
-def get_db():
-    """获取 PostgreSQL 数据库连接（字典游标）。
-    自动为远程库开启 SSL，剥离 Supabase pooler 特有参数。
-    Supabase 直连是 IPv6-only，Vercel 不支持 IPv6 → 请用 Transaction pooler (port 6543)。
-    """
+def _build_dsn():
     dsn = DATABASE_URL
-    # psycopg2 不认识 Supabase pooler URL 的 ?pgbouncer=true，剥离
     if 'pgbouncer=true' in dsn:
         dsn = dsn.replace('?pgbouncer=true', '?').replace('&pgbouncer=true', '')
         dsn = dsn.rstrip('?&')
     if 'localhost' not in dsn and '127.0.0.1' not in dsn and 'sslmode' not in dsn:
         sep = '?' if '?' not in dsn else '&'
         dsn = f'{dsn}{sep}sslmode=require'
-    # Transaction pooler (port 6543) 不支持 prepared statements
-    kwargs = {}
+    return dsn
+
+
+_pool: ThreadedConnectionPool | None = None
+_pool_dsn: str = ""
+
+
+def _init_pool():
+    global _pool, _pool_dsn
+    dsn = _build_dsn()
+    kwargs = {'cursor_factory': RealDictCursor, 'connect_timeout': 10}
     if ':6543' in dsn:
         kwargs['options'] = '-c plan_cache_mode=force_custom_plan'
-    return psycopg2.connect(
-        dsn, cursor_factory=RealDictCursor, connect_timeout=10, **kwargs,
-    )
+    _pool = ThreadedConnectionPool(1, 3, dsn, **kwargs)
+    _pool_dsn = dsn
+
+
+class _PooledConnection:
+    """包装 psycopg2 连接，让 close() 归还连接池而非真正关闭。"""
+
+    def __init__(self, conn, pool):
+        self._conn = conn
+        self._pool = pool
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+    def close(self):
+        try:
+            self._pool.putconn(self._conn)
+        except Exception:
+            try:
+                self._conn.close()
+            except Exception:
+                pass
+
+    def really_close(self):
+        self._conn.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
+
+
+def _is_conn_alive(conn) -> bool:
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT 1")
+        cur.close()
+        return True
+    except Exception:
+        return False
+
+
+def get_db():
+    """获取 PostgreSQL 数据库连接（字典游标），走连接池。
+
+    每个 Vercel 实例最多持有 3 个连接，避免耗尽 Supabase session pooler
+    的 15 连接上限。调用方正常 conn.close() 即可——实际归还连接池而非关闭。
+    遇到连接超限错误时自动重试最多 3 次。
+    """
+    global _pool, _pool_dsn
+    dsn = _build_dsn()
+    if _pool is None or dsn != _pool_dsn:
+        if _pool is not None:
+            try:
+                _pool.closeall()
+            except Exception:
+                pass
+        _init_pool()
+
+    last_error = None
+    for attempt in range(3):
+        try:
+            conn = _pool.getconn()
+            if _is_conn_alive(conn):
+                return _PooledConnection(conn, _pool)
+            # 连接已失效，关闭并从池中移除，重试
+            try:
+                conn.close()
+            except Exception:
+                pass
+            continue
+        except psycopg2.OperationalError as e:
+            last_error = e
+            msg = str(e)
+            if 'too many clients' in msg or 'max clients reached' in msg.lower() or 'EMAXCONNSESSION' in msg:
+                time.sleep(0.3 * (attempt + 1))
+                continue
+            raise
+        except Exception:
+            last_error = None
+            break
+    if last_error:
+        raise last_error
+    conn = _pool.getconn()
+    return _PooledConnection(conn, _pool)
 
 
 def init_db():

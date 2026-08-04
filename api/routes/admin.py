@@ -581,11 +581,16 @@ def admin_rewards(group_id: int, _token: str = Depends(_require_admin)):
     rewards = [dict(r) for r in cur.fetchall()]
 
     # 注入锁信息
-    from api.services.lock_service import get_reward_locks
-    for r in rewards:
-        locks = get_reward_locks(cur, r["id"], group_id)
-        r["lock_tasks"] = [lk["key_task_name"] for lk in locks]
-        r["lock_task_ids"] = [lk["task_id"] for lk in locks]
+    try:
+        from api.services.lock_service import get_reward_locks
+        for r in rewards:
+            locks = get_reward_locks(cur, r["id"], group_id)
+            r["lock_tasks"] = [lk["key_task_name"] for lk in locks]
+            r["lock_task_ids"] = [lk["task_id"] for lk in locks]
+    except Exception:
+        for r in rewards:
+            r["lock_tasks"] = []
+            r["lock_task_ids"] = []
 
     conn.close()
     return rewards

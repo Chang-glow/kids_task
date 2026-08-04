@@ -26,19 +26,22 @@ def get_rewards(group_id: int = Depends(get_group_id)):
     rewards = cur.fetchall()
 
     # 批量加载所有奖励的锁信息
-    from api.services.lock_service import get_reward_locks
     locks_by_reward = {}
-    for r in rewards:
-        locks = get_reward_locks(cur, r["id"], group_id)
-        pending = []
-        for lk in locks:
-            if lk["key_task_status"] == "done":
-                cd = lk["completed_at"].date() if lk["completed_at"] else None
-                if cd == today:
-                    continue
-            pending.append(lk["key_task_name"])
-        locks_by_reward[r["id"]] = {"locked": len(pending) > 0, "pending_tasks": pending,
-                                     "total_keys": len(locks)} if locks else None
+    try:
+        from api.services.lock_service import get_reward_locks
+        for r in rewards:
+            locks = get_reward_locks(cur, r["id"], group_id)
+            pending = []
+            for lk in locks:
+                if lk["key_task_status"] == "done":
+                    cd = lk["completed_at"].date() if lk["completed_at"] else None
+                    if cd == today:
+                        continue
+                pending.append(lk["key_task_name"])
+            locks_by_reward[r["id"]] = {"locked": len(pending) > 0, "pending_tasks": pending,
+                                         "total_keys": len(locks)} if locks else None
+    except Exception:
+        pass
 
     conn.commit()
     conn.close()
