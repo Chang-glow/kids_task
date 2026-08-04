@@ -101,7 +101,18 @@ def redeem_reward(req: RedeemRewardRequest, group_id: int = Depends(get_group_id
         # 奖励锁检查：所有钥匙任务今日均完成才可兑换
         from api.services.lock_service import check_reward_unlocked
         unlocked, lock_reason = check_reward_unlocked(cur, req.reward_id, group_id, now_cst().date())
-        if not unlocked:
+
+        # 解锁券：绕过锁检查
+        unlock_coupon = None
+        if not unlocked and req.investment_coupon_id is not None:
+            cur.execute(
+                "SELECT * FROM investment_coupons WHERE id = %s AND group_id = %s AND used = false",
+                (req.investment_coupon_id, group_id),
+            )
+            unlock_coupon = cur.fetchone()
+            if not unlock_coupon:
+                raise HTTPException(status_code=400, detail="解锁券不存在或已使用")
+        elif not unlocked:
             raise HTTPException(status_code=403, detail=lock_reason)
 
         # Get first child's points
@@ -150,6 +161,16 @@ def redeem_reward(req: RedeemRewardRequest, group_id: int = Depends(get_group_id
             adj_pct = coupon_discount_pct(coupon["medal_count"])
             coupon_desc = f"（优惠券 {coupon['medal_count']}章 -{adj_pct}%）"
 
+        # 解锁券额外支付
+        unlock_extra = 0
+        unlock_desc = ""
+        if unlock_coupon is not None:
+            from api.services.investment_service import compute_unlock_extra_pct
+            extra_pct = compute_unlock_extra_pct(unlock_coupon["medal_count"])
+            unlock_extra = max(1, round(cost * extra_pct))
+            unlock_desc = f" + 解锁额外 {unlock_extra} 分（{int(extra_pct * 100)}%）"
+            cost += unlock_extra
+
         if current_points < cost:
             hint = ""
             if info is not None and not info.get("is_flat"):
@@ -172,9 +193,9 @@ def redeem_reward(req: RedeemRewardRequest, group_id: int = Depends(get_group_id
         if info is not None and not info.get("is_flat"):
             pct = int(abs(info["rate"]) * 100)
             direction = "涨价" if info["rate"] > 0 else "降价"
-            description = f"兑换奖励「{reward['name']}」{reward['emoji']} → -{cost}分（原价{reward['cost_points']}，{direction}{pct}%）{coupon_desc}"
+            description = f"兑换奖励「{reward['name']}」{reward['emoji']} → -{cost}分（原价{reward['cost_points']}，{direction}{pct}%）{coupon_desc}{unlock_desc}"
         else:
-            description = f"兑换奖励「{reward['name']}」{reward['emoji']} → -{cost}分{coupon_desc}"
+            description = f"兑换奖励「{reward['name']}」{reward['emoji']} → -{cost}分{coupon_desc}{unlock_desc}"
         cur.execute(
             "INSERT INTO point_logs (action, amount, description, created_at, group_id, child_id)"
             " VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
@@ -193,6 +214,12 @@ def redeem_reward(req: RedeemRewardRequest, group_id: int = Depends(get_group_id
             apply_coupon(cur, coupon["id"], reward["id"], child["id"], group_id, now)
             undo_data["coupon_id"] = coupon["id"]
             undo_data["coupon_used"] = True
+        if unlock_coupon is not None:
+            from api.services.investment_service import use_unlock_coupon
+            use_unlock_coupon(cur, child["id"], group_id, unlock_coupon["id"], now)
+            undo_data["investment_coupon_id"] = unlock_coupon["id"]
+            undo_data["unlock_coupon_used"] = True
+            undo_data["unlock_extra"] = unlock_extra
         cur.execute(
             "INSERT INTO undo_operations (group_id, child_id, operation_type, description, undo_data, created_at)"
             " VALUES (%s, %s, %s, %s, %s, %s)",

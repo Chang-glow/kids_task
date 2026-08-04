@@ -39,6 +39,7 @@ class AddRewardRequest(BaseModel):
 class RedeemRewardRequest(BaseModel):
     reward_id: int
     coupon_id: int | None = None
+    investment_coupon_id: int | None = None
 
 
 class ExchangeCouponRequest(BaseModel):

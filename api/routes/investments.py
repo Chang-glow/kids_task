@@ -1,4 +1,4 @@
-"""投资系统 API：投资章 → 投资券 → 每日收益。"""
+"""投资系统 API：投资章 → 解锁券 → 绕过奖励锁。"""
 
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
@@ -10,7 +10,7 @@ from api.services.investment_service import (
     get_today_investment_medals,
     exchange_investment_coupon,
     get_child_investment_coupons,
-    use_investment_coupon,
+    use_unlock_coupon,
     get_active_investments,
     get_all_investment_stats,
 )
@@ -47,7 +47,7 @@ def list_medals(child_id: int, group_id: int = Depends(get_group_id)):
 
 @router.post("/exchange")
 def exchange(req: ExchangeRequest, group_id: int = Depends(get_group_id)):
-    """用投资章兑换投资券。5 枚换 1 张。"""
+    """用投资章兑换解锁券。≥5 章起兑，章数越多额外支付比例越低。"""
     conn = get_db()
     cur = conn.cursor()
     try:
@@ -82,12 +82,12 @@ def list_coupons(child_id: int, group_id: int = Depends(get_group_id)):
 
 @router.post("/use")
 def use_coupon(req: UseCouponRequest, group_id: int = Depends(get_group_id)):
-    """使用投资券：扣 10 分，开始 50 天每日收益。"""
+    """使用解锁券：标记券已使用，返回解锁比例。"""
     conn = get_db()
     cur = conn.cursor()
     try:
         now = now_cst()
-        result = use_investment_coupon(cur, req.child_id, group_id, req.coupon_id, now)
+        result = use_unlock_coupon(cur, req.child_id, group_id, req.coupon_id, now)
         conn.commit()
         return result
     except ValueError as e:

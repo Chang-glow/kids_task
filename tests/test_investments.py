@@ -1,4 +1,4 @@
-"""投资系统测试：投资章 → 投资券 → 每日收益。"""
+"""投资系统测试：投资章 → 解锁券 → 绕过奖励锁。"""
 import pytest
 
 
@@ -60,7 +60,7 @@ class TestInvestmentMedals:
 
 
 class TestExchangeCoupon:
-    """投资章 → 投资券兑换。"""
+    """投资章 → 解锁券兑换。"""
 
     @pytest.fixture
     def five_medals(self, client, group_ctx):
@@ -80,7 +80,7 @@ class TestExchangeCoupon:
         return child_id, h
 
     def test_exchange_5_medals(self, client, group_ctx, five_medals):
-        """5 枚章换 1 张投资券。"""
+        """5 枚章兑 1 张解锁券，额外支付 50%。"""
         child_id, h = five_medals
         r = client.post("/api/investments/exchange", json={
             "child_id": child_id, "medal_count": 5
@@ -88,13 +88,36 @@ class TestExchangeCoupon:
         assert r.status_code == 200
         data = r.json()
         assert data["success"] is True
-        assert data["coupons_created"] == 1
+        assert data["coupon_id"] > 0
+        assert data["medal_count"] == 5
+        assert data["unlock_extra_pct"] == 50
         assert data["medals_remaining"] == 0
 
-    def test_exchange_10_medals(self, client, group_ctx, five_medals):
-        """10 枚章需要 10 种不同任务。"""
+    def test_exchange_8_medals(self, client, group_ctx, five_medals):
+        """8 枚章兑解锁券，额外支付 20%。"""
         child_id, h = five_medals
-        # 再创建 5 种任务
+        # 再创建 3 种任务
+        task_ids = []
+        for i in range(3):
+            res = client.post("/api/tasks", json={
+                "name": f"任务2{chr(65+i)}", "emoji": "📝", "base_points": 10
+            }, headers=h)
+            task_ids.append(res.json()["id"])
+        for tid in task_ids:
+            client.post(f"/api/tasks/complete", json={
+                "task_id": tid, "star_rating": 5
+            }, headers=h)
+
+        r = client.post("/api/investments/exchange", json={
+            "child_id": child_id, "medal_count": 8
+        }, headers=h)
+        assert r.status_code == 200
+        data = r.json()
+        assert data["unlock_extra_pct"] == 20
+
+    def test_exchange_10_medals_zero_extra(self, client, group_ctx, five_medals):
+        """10 枚章兑解锁券，额外支付 0%（完全解锁）。"""
+        child_id, h = five_medals
         task_ids = []
         for i in range(5):
             res = client.post("/api/tasks", json={
@@ -110,21 +133,32 @@ class TestExchangeCoupon:
             "child_id": child_id, "medal_count": 10
         }, headers=h)
         assert r.status_code == 200
-        assert r.json()["coupons_created"] == 2
+        data = r.json()
+        assert data["unlock_extra_pct"] == 0
+
+    def test_exchange_any_count_above_5(self, client, group_ctx, five_medals):
+        """≥5 任意数量均可兑换（不再限制 5 的倍数）。"""
+        child_id, h = five_medals
+        # 再创建 2 种 → 共 7 章
+        for i in range(2):
+            res = client.post("/api/tasks", json={
+                "name": f"任务2{chr(65+i)}", "emoji": "📝", "base_points": 10
+            }, headers=h)
+            client.post(f"/api/tasks/complete", json={
+                "task_id": res.json()["id"], "star_rating": 5
+            }, headers=h)
+
+        r = client.post("/api/investments/exchange", json={
+            "child_id": child_id, "medal_count": 7
+        }, headers=h)
+        assert r.status_code == 200
+        assert r.json()["medal_count"] == 7
 
     def test_exchange_below_5(self, client, group_ctx, five_medals):
         """不足 5 枚不能兑换。"""
         child_id, h = five_medals
         r = client.post("/api/investments/exchange", json={
             "child_id": child_id, "medal_count": 3
-        }, headers=h)
-        assert r.status_code == 400
-
-    def test_exchange_not_multiple_of_5(self, client, group_ctx, five_medals):
-        """非 5 的整数倍不能兑换。"""
-        child_id, h = five_medals
-        r = client.post("/api/investments/exchange", json={
-            "child_id": child_id, "medal_count": 7
         }, headers=h)
         assert r.status_code == 400
 
@@ -137,34 +171,32 @@ class TestExchangeCoupon:
         assert r.status_code == 400
 
 
-class TestUseCoupon:
-    """使用投资券 → 创建活跃投资。"""
+class TestUseUnlockCoupon:
+    """使用解锁券：标记已用。"""
 
     @pytest.fixture
     def ready_coupon(self, client, group_ctx):
-        """准备 1 张投资券（5 种不同任务 + 兑换）+ 足够的积分。"""
+        """准备 1 张解锁券。"""
         child_id = group_ctx["children"][0]["id"]
         h = group_ctx["headers"]
-        # 给足够积分（通过完成任务赚取）
         task_ids = []
         for i in range(5):
             res = client.post("/api/tasks", json={
-                "name": f"任务{chr(65+i)}", "emoji": "📝", "base_points": 50
+                "name": f"任务{chr(65+i)}", "emoji": "📝", "base_points": 10
             }, headers=h)
             task_ids.append(res.json()["id"])
         for tid in task_ids:
             client.post(f"/api/tasks/complete", json={
                 "task_id": tid, "star_rating": 5
             }, headers=h)
-        # 兑换投资券
         r = client.post("/api/investments/exchange", json={
             "child_id": child_id, "medal_count": 5
         }, headers=h)
-        coupon_id = r.json()["coupon_ids"][0]
+        coupon_id = r.json()["coupon_id"]
         return child_id, coupon_id, h
 
-    def test_use_coupon_starts_investment(self, client, group_ctx, ready_coupon):
-        """使用投资券 → 扣 10 分，创建 50 天投资。"""
+    def test_use_unlock_coupon_success(self, client, group_ctx, ready_coupon):
+        """使用解锁券标记成功。"""
         child_id, coupon_id, h = ready_coupon
         r = client.post("/api/investments/use", json={
             "child_id": child_id, "coupon_id": coupon_id
@@ -172,27 +204,10 @@ class TestUseCoupon:
         assert r.status_code == 200
         data = r.json()
         assert data["success"] is True
-        assert data["principal"] == 10
-        assert data["daily_income"] == 0.5
-        assert data["days_remaining"] == 50
-
-    def test_use_coupon_deducts_points(self, client, group_ctx, ready_coupon):
-        """使用投资券扣 10 分。"""
-        child_id, coupon_id, h = ready_coupon
-        # 查当前积分
-        cr = client.get(f"/api/groups/{group_ctx['invite_code']}", headers=h)
-        before = cr.json()["children"][0]["total_points"]
-
-        r = client.post("/api/investments/use", json={
-            "child_id": child_id, "coupon_id": coupon_id
-        }, headers=h)
-
-        cr2 = client.get(f"/api/groups/{group_ctx['invite_code']}", headers=h)
-        after = cr2.json()["children"][0]["total_points"]
-        assert before - after == 10
+        assert data["unlock_extra_pct"] == 50
 
     def test_coupon_cannot_use_twice(self, client, group_ctx, ready_coupon):
-        """投资券只能用一次。"""
+        """解锁券只能用一次。"""
         child_id, coupon_id, h = ready_coupon
         client.post("/api/investments/use", json={
             "child_id": child_id, "coupon_id": coupon_id
@@ -203,99 +218,109 @@ class TestUseCoupon:
         assert r.status_code == 400
 
     def test_use_nonexistent_coupon(self, client, group_ctx, ready_coupon):
-        """使用不存在的投资券。"""
+        """使用不存在的解锁券。"""
         child_id, _, h = ready_coupon
         r = client.post("/api/investments/use", json={
             "child_id": child_id, "coupon_id": 99999
         }, headers=h)
         assert r.status_code == 400
 
-    def test_active_investments_listed(self, client, group_ctx, ready_coupon):
-        """使用后出现在活跃投资列表。"""
-        child_id, coupon_id, h = ready_coupon
-        client.post("/api/investments/use", json={
-            "child_id": child_id, "coupon_id": coupon_id
-        }, headers=h)
-        r = client.get(f"/api/investments/active?child_id={child_id}", headers=h)
-        assert r.status_code == 200
-        assert len(r.json()["investments"]) >= 1
-        inv = r.json()["investments"][0]
-        assert inv["days_remaining"] == 50
-        assert inv["status"] == "active"
 
+class TestUnlockCouponRedeem:
+    """解锁券配合奖励兑换。"""
 
-class TestDailyPayout:
-    """每日收益发放。"""
-
-    def test_payout_adds_income(self, client, group_ctx):
-        """发放后孩子积分增加 0.5 分。"""
+    @pytest.fixture
+    def locked_reward_with_coupon(self, client, group_ctx):
+        """准备：锁定奖励 + 解锁券 + 足够积分。"""
         child_id = group_ctx["children"][0]["id"]
         h = group_ctx["headers"]
-        # 创建 5 任务 → 攒 5 章 → 兑换 → 使用
+
+        # 创建钥匙任务
+        tr = client.post("/api/tasks", json={
+            "name": "钥匙任务", "emoji": "🔑", "base_points": 50
+        }, headers=h)
+        key_task_id = tr.json()["id"]
+
+        # 创建奖励
+        rr = client.post("/api/rewards", json={
+            "name": "锁定奖励", "emoji": "🎁", "cost_points": 50
+        }, headers=h)
+        reward_id = rr.json()["id"]
+
+        # 添加锁
+        from api.models.database import get_db
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO reward_locks (reward_id, task_id, group_id) VALUES (%s, %s, %s)",
+            (reward_id, key_task_id, group_ctx["id"]),
+        )
+        conn.commit()
+        conn.close()
+
+        # 攒积分：完成 5 种任务（包含钥匙任务）
         for i in range(5):
             res = client.post("/api/tasks", json={
-                "name": f"任务{chr(65+i)}", "emoji": "📝", "base_points": 50
+                "name": f"积分任务{chr(65+i)}", "emoji": "📝", "base_points": 50
             }, headers=h)
-            tid = res.json()["id"]
             client.post(f"/api/tasks/complete", json={
-                "task_id": tid, "star_rating": 5
+                "task_id": res.json()["id"], "star_rating": 5
             }, headers=h)
+
+        # 兑换解锁券
         ex = client.post("/api/investments/exchange", json={
             "child_id": child_id, "medal_count": 5
         }, headers=h)
-        cid = ex.json()["coupon_ids"][0]
-        client.post("/api/investments/use", json={
-            "child_id": child_id, "coupon_id": cid
-        }, headers=h)
+        coupon_id = ex.json()["coupon_id"]
 
-        # 查积分
+        return child_id, reward_id, coupon_id, h
+
+    def test_redeem_locked_without_coupon_403(self, client, group_ctx, locked_reward_with_coupon):
+        """锁定奖励无解锁券 → 403。"""
+        _, reward_id, _, h = locked_reward_with_coupon
+        r = client.post("/api/rewards/redeem", json={
+            "reward_id": reward_id
+        }, headers=h)
+        assert r.status_code == 403
+
+    def test_redeem_locked_with_coupon_success(self, client, group_ctx, locked_reward_with_coupon):
+        """锁定奖励 + 解锁券 → 兑换成功，含额外支付。"""
+        child_id, reward_id, coupon_id, h = locked_reward_with_coupon
+
         cr = client.get(f"/api/groups/{group_ctx['invite_code']}", headers=h)
         before = cr.json()["children"][0]["total_points"]
 
-        # 触发 payout（手动调用 cron）
-        import os
-        os.environ["CRON_SECRET"] = "testsecret"
-        r = client.get("/api/cron/investment-payout?secret=testsecret")
+        r = client.post("/api/rewards/redeem", json={
+            "reward_id": reward_id, "investment_coupon_id": coupon_id
+        }, headers=h)
         assert r.status_code == 200
-        assert r.json()["investments_processed"] >= 1
+        data = r.json()
+        assert data["success"] is True
 
         cr2 = client.get(f"/api/groups/{group_ctx['invite_code']}", headers=h)
         after = cr2.json()["children"][0]["total_points"]
-        # 注意：0.5 分插入 point_logs 时被转为 int(0) = 0
-        # children.total_points 加的是 NUMERIC 0.5
-        assert after >= before  # 积分变化因整数截断需具体验证
+        spent = before - after
+        # 基础价格 50 分 + 50% 解锁额外 + 可能时段定价
+        assert spent >= 50, f"should spend at least 50 base, spent {spent}"
+        assert spent == data["spent_points"], f"balance delta {spent} should match api {data['spent_points']}"
 
-    def test_payout_decrements_days(self, client, group_ctx):
-        """发放后剩余天数减 1。"""
-        child_id = group_ctx["children"][0]["id"]
-        h = group_ctx["headers"]
-        for i in range(5):
-            res = client.post("/api/tasks", json={
-                "name": f"任务{chr(65+i)}", "emoji": "📝", "base_points": 50
-            }, headers=h)
-            tid = res.json()["id"]
-            client.post(f"/api/tasks/complete", json={
-                "task_id": tid, "star_rating": 5
-            }, headers=h)
-        ex = client.post("/api/investments/exchange", json={
-            "child_id": child_id, "medal_count": 5
-        }, headers=h)
-        cid = ex.json()["coupon_ids"][0]
-        client.post("/api/investments/use", json={
-            "child_id": child_id, "coupon_id": cid
+    def test_unlock_coupon_used_after_redeem(self, client, group_ctx, locked_reward_with_coupon):
+        """兑换后解锁券标记为已使用。"""
+        child_id, reward_id, coupon_id, h = locked_reward_with_coupon
+
+        client.post("/api/rewards/redeem", json={
+            "reward_id": reward_id, "investment_coupon_id": coupon_id
         }, headers=h)
 
-        import os
-        os.environ["CRON_SECRET"] = "testsecret"
-        client.get("/api/cron/investment-payout?secret=testsecret")
-
-        r = client.get(f"/api/investments/active?child_id={child_id}", headers=h)
-        inv = r.json()["investments"][0]
-        assert inv["days_remaining"] == 49
+        # 再次使用同一张券应失败
+        r = client.post("/api/investments/use", json={
+            "child_id": child_id, "coupon_id": coupon_id
+        }, headers=h)
+        assert r.status_code == 400
 
 
 class TestCouponList:
-    """投资券列表。"""
+    """解锁券列表。"""
 
     def test_list_empty(self, client, group_ctx):
         """还没有兑换时列表为空。"""
@@ -321,6 +346,26 @@ class TestCouponList:
         }, headers=h)
         r = client.get(f"/api/investments/coupons?child_id={child_id}", headers=h)
         assert len(r.json()["coupons"]) == 1
+
+
+class TestBackwardCompat:
+    """存量投资兼容：process_daily_payouts + active investments 依然可用。"""
+
+    def test_active_investments_empty(self, client, group_ctx):
+        """无存量投资时返回空列表。"""
+        child_id = group_ctx["children"][0]["id"]
+        h = group_ctx["headers"]
+        r = client.get(f"/api/investments/active?child_id={child_id}", headers=h)
+        assert r.status_code == 200
+        assert r.json()["investments"] == []
+
+    def test_daily_payout_runs(self, client, group_ctx):
+        """payout cron 端点仍可调用（处理存量投资）。"""
+        import os
+        os.environ["CRON_SECRET"] = "testsecret"
+        r = client.get("/api/cron/investment-payout?secret=testsecret")
+        assert r.status_code == 200
+        assert "investments_processed" in r.json()
 
 
 class TestAdminStats:

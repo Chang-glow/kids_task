@@ -1,4 +1,4 @@
-"""投资系统服务：投资章 → 投资券 → 每日收益。"""
+"""投资系统服务：投资章 → 解锁券 → 跳过锁兑换。"""
 
 
 def award_investment_medal(cur, child_id: int, group_id: int, task_id: int, today) -> int:
@@ -26,13 +26,17 @@ def get_today_investment_medals(cur, child_id: int, group_id: int, today) -> int
     return row["cnt"] if row else 0
 
 
+def compute_unlock_extra_pct(medal_count: int) -> float:
+    """解锁券额外支付比例：5 章 = 50%，每多一章 -10%，10 章 = 0%"""
+    raw = 50 - (medal_count - 5) * 10
+    return max(0, raw) / 100.0
+
+
 def exchange_investment_coupon(cur, child_id: int, group_id: int,
                                medal_count: int, today, now) -> dict:
-    """用投资章兑换投资券。5 章起兑。"""
+    """用投资章兑换解锁券。≥5 章起兑，券的 medal_count 为实际消耗章数。"""
     if medal_count < 5:
-        raise ValueError("至少需要 5 枚投资章才能兑换投资券")
-    if medal_count % 5 != 0:
-        raise ValueError("投资章必须为 5 的整数倍")
+        raise ValueError("至少需要 5 枚投资章才能兑换解锁券")
 
     balance = get_today_investment_medals(cur, child_id, group_id, today)
     if balance < medal_count:
@@ -48,20 +52,19 @@ def exchange_investment_coupon(cur, child_id: int, group_id: int,
         (child_id, today, medal_count),
     )
 
-    num_coupons = medal_count // 5
-    coupon_ids = []
-    for _ in range(num_coupons):
-        cur.execute(
-            """INSERT INTO investment_coupons (child_id, group_id, medal_count, created_at)
-               VALUES (%s, %s, %s, %s) RETURNING id""",
-            (child_id, group_id, 5, now),
-        )
-        coupon_ids.append(cur.fetchone()["id"])
+    cur.execute(
+        """INSERT INTO investment_coupons (child_id, group_id, medal_count, created_at)
+           VALUES (%s, %s, %s, %s) RETURNING id""",
+        (child_id, group_id, medal_count, now),
+    )
+    coupon_id = cur.fetchone()["id"]
 
+    extra_pct = compute_unlock_extra_pct(medal_count)
     return {
         "success": True,
-        "coupon_ids": coupon_ids,
-        "coupons_created": num_coupons,
+        "coupon_id": coupon_id,
+        "medal_count": medal_count,
+        "unlock_extra_pct": round(extra_pct * 100),
         "medals_remaining": balance - medal_count,
     }
 
@@ -76,9 +79,9 @@ def get_child_investment_coupons(cur, child_id: int, group_id: int) -> list[dict
     return [dict(r) for r in cur.fetchall()]
 
 
-def use_investment_coupon(cur, child_id: int, group_id: int,
-                          coupon_id: int, now) -> dict:
-    """使用投资券：扣 10 分，创建 50 天投资（每天 0.5 分收益）。"""
+def use_unlock_coupon(cur, child_id: int, group_id: int,
+                      coupon_id: int, now) -> dict:
+    """使用解锁券绕过奖励锁：验证券有效 → 标记已用 → 返回额外支付比例。"""
     cur.execute(
         """SELECT * FROM investment_coupons
            WHERE id = %s AND child_id = %s AND group_id = %s AND used = false""",
@@ -86,19 +89,9 @@ def use_investment_coupon(cur, child_id: int, group_id: int,
     )
     coupon = cur.fetchone()
     if not coupon:
-        raise ValueError("投资券不存在或已使用")
+        raise ValueError("解锁券不存在或已使用")
 
-    principal = 10
-
-    cur.execute("SELECT total_points FROM children WHERE id = %s", (child_id,))
-    child = cur.fetchone()
-    if child["total_points"] < principal:
-        raise ValueError(f"积分不足（当前 {child['total_points']}，需要 {principal}）")
-
-    cur.execute(
-        "UPDATE children SET total_points = total_points - %s WHERE id = %s",
-        (principal, child_id),
-    )
+    extra_pct = compute_unlock_extra_pct(coupon["medal_count"])
 
     cur.execute(
         "UPDATE investment_coupons SET used = true, used_at = %s WHERE id = %s",
@@ -106,33 +99,18 @@ def use_investment_coupon(cur, child_id: int, group_id: int,
     )
 
     cur.execute(
-        """INSERT INTO investments (child_id, group_id, coupon_id, principal,
-               daily_income, days_remaining, created_at)
-           VALUES (%s, %s, %s, %s, 0.5, 50, %s) RETURNING id""",
-        (child_id, group_id, coupon_id, principal, now),
-    )
-    investment_id = cur.fetchone()["id"]
-
-    cur.execute(
         """INSERT INTO point_logs (action, amount, description, created_at, group_id, child_id)
            VALUES (%s, %s, %s, %s, %s, %s)""",
-        ("invest", -principal,
-         f"使用投资券 → 投入 {principal} 分，每天 +0.5 分 × 50 天",
+        ("use_unlock_coupon", 0,
+         f"使用解锁券（{coupon['medal_count']}章）→ 额外支付 {int(extra_pct * 100)}% 绕过奖励锁",
          now, group_id, child_id),
     )
 
-    cur.execute(
-        "SELECT total_points FROM children WHERE id = %s", (child_id,)
-    )
-    new_balance = cur.fetchone()["total_points"]
-
     return {
         "success": True,
-        "investment_id": investment_id,
-        "principal": principal,
-        "daily_income": 0.5,
-        "days_remaining": 50,
-        "new_balance": new_balance,
+        "coupon_id": coupon_id,
+        "medal_count": coupon["medal_count"],
+        "unlock_extra_pct": round(extra_pct * 100),
     }
 
 

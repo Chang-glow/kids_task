@@ -810,7 +810,7 @@ input:focus, select:focus {
         <div class="points-icon" style="display:flex;flex-direction:column;align-items:center;gap:4px;">
           <span style="font-size:2rem;">🏆</span>
           <span style="font-size:0.8rem;font-weight:900;color:rgba(255,255,255,0.9);white-space:nowrap;">🏅 <span x-text="medalsToday"></span> 章</span>
-          <span style="font-size:0.8rem;font-weight:900;color:rgba(255,255,255,0.9);white-space:nowrap;">💎 <span x-text="investmentMedalsToday"></span> 投</span>
+          <span style="font-size:0.8rem;font-weight:900;color:rgba(255,255,255,0.9);white-space:nowrap;">💎 <span x-text="investmentMedalsToday"></span> 解锁章</span>
         </div>
       </div>
 
@@ -1145,11 +1145,11 @@ input:focus, select:focus {
               <button class="btn btn-sm" style="background:linear-gradient(135deg,#38bdf8,#0ea5e9);color:white;box-shadow:0 4px 12px rgba(14,165,233,0.35);" @click="openCouponExchange()">🎟️ 兑换</button>
             </div>
 
-            <!-- 投资券兑换（常设第二位） -->
+            <!-- 解锁券兑换（常设第二位） -->
             <div class="reward-item" style="background:linear-gradient(135deg,#fef3c7,#fde68a);border-color:#f59e0b;border-width:3px;box-shadow:0 0 16px rgba(245,158,11,0.3);">
               <div class="r-emoji">💎</div>
-              <div class="r-name" style="color:#92400e;">投资券兑换</div>
-              <div class="r-cost" style="color:#b45309;">💎 5 章起兑</div>
+              <div class="r-name" style="color:#92400e;">解锁券兑换</div>
+              <div class="r-cost" style="color:#b45309;">💎 5 章起兑 · 最高额外 50%</div>
               <button class="btn btn-sm" style="background:linear-gradient(135deg,#f59e0b,#d97706);color:white;box-shadow:0 4px 12px rgba(217,119,6,0.35);" @click="couponType = 'investment'; investmentExchangeCount = Math.min(5, investmentMedalsToday); couponModalOpen = true">💎 兑换</button>
             </div>
 
@@ -1191,11 +1191,12 @@ input:focus, select:focus {
                   </div>
                 </template>
                 <button class="btn btn-sm"
-                        :class="currentPoints >= (r.surged_cost || r.cost_points) && !(r.lock && r.lock.locked) ? 'btn-orange' : 'btn-danger'"
-                        :style="(currentPoints < (r.surged_cost || r.cost_points) || (r.lock && r.lock.locked)) ? 'opacity:0.6' : ''"
+                        :class="currentPoints >= (r.surged_cost || r.cost_points) && !(r.lock && r.lock.locked) ? 'btn-orange' : (r.lock && r.lock.locked && investmentCoupons.length > 0 ? 'btn-orange' : 'btn-danger')"
+                        :style="(currentPoints < (r.surged_cost || r.cost_points) || (r.lock && r.lock.locked && investmentCoupons.length === 0)) ? 'opacity:0.6' : ''"
                         @click="redeemReward(r)"
-                        :disabled="r.lock && r.lock.locked">
-                  <span x-show="r.lock && r.lock.locked">🔒 锁定</span>
+                        :disabled="r.lock && r.lock.locked && investmentCoupons.length === 0">
+                  <span x-show="r.lock && r.lock.locked && investmentCoupons.length > 0">🔓 用券解锁</span>
+                  <span x-show="r.lock && r.lock.locked && investmentCoupons.length === 0">🔒 锁定</span>
                   <span x-show="!(r.lock && r.lock.locked) && currentPoints >= (r.surged_cost || r.cost_points)">🎁 兑换</span>
                   <span x-show="!(r.lock && r.lock.locked) && currentPoints < (r.surged_cost || r.cost_points)">😢 不够</span>
                 </button>
@@ -1228,16 +1229,16 @@ input:focus, select:focus {
             </div>
           </template>
 
-          <!-- 投资券 -->
+          <!-- 解锁券 -->
           <template x-if="investmentCoupons.length > 0">
             <div style="margin-bottom:12px;">
-              <div style="font-weight:700;color:#92400e;margin-bottom:6px;">💎 投资券</div>
+              <div style="font-weight:700;color:#92400e;margin-bottom:6px;">🔓 解锁券</div>
               <template x-for="ic in investmentCoupons" :key="ic.id">
                 <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:linear-gradient(135deg,#fef3c7,#fde68a);border-radius:12px;margin-bottom:8px;border:2px solid #fcd34d;">
                   <div>
-                    <span style="font-weight:900;color:#92400e;" x-text="'💎 投资券（' + (ic.medal_count || 5) + ' 章）'"></span>
+                    <span style="font-weight:900;color:#92400e;" x-text="'🔓 解锁券（' + (ic.medal_count || 5) + ' 章）'"></span>
+                    <span style="font-size:0.8rem;color:#b45309;font-weight:700;margin-left:8px;" x-text="'额外 +' + unlockExtraPct(ic.medal_count) + '%'"></span>
                   </div>
-                  <button class="btn btn-sm" style="background:linear-gradient(135deg,#f59e0b,#d97706);color:white;" @click="doUseInvestmentCoupon(ic.id)">📈 投资（-10分）</button>
                 </div>
               </template>
             </div>
@@ -1436,12 +1437,12 @@ input:focus, select:focus {
 <!-- 统一兑换弹窗（优惠券 + 投资券） -->
 <div class="modal-overlay" :class="{ open: couponModalOpen }">
   <div class="modal">
-    <h3 x-text="couponType === 'medal' ? '🎟️ 兑换优惠券' : '💎 兑换投资券'"></h3>
+    <h3 x-text="couponType === 'medal' ? '🎟️ 兑换优惠券' : '💎 兑换解锁券'"></h3>
     <div style="font-size:0.9rem;color:#718096;font-weight:700;margin:8px 0;" x-show="couponType === 'medal'">
       5 章保底 10% 折扣，每加 1 章按斐波那契递增 (+3%, +5%, +8%, +13%...)
     </div>
     <div style="font-size:0.9rem;color:#718096;font-weight:700;margin:8px 0;" x-show="couponType === 'investment'">
-      5 枚投资章兑 1 张投资券，可叠加多张同时投资
+      ≥5 章兑 1 张解锁券，章数越多额外支付越少（5章→+50%，10章→0%）
     </div>
     <div style="font-size:1.1rem;font-weight:900;margin:12px 0;"
          :style="couponType === 'medal' ? 'color:#0369a1' : 'color:#92400e'"
@@ -1468,6 +1469,11 @@ input:focus, select:focus {
     <div class="points-preview" x-show="couponType === 'medal'"
          style="background:linear-gradient(135deg,#e0f2fe,#bae6fd);color:#0369a1;">
       获得涨降价额度: <span style="font-size:1.5rem;font-weight:900;" x-text="couponDiscountPct(couponExchangeCount) + '%'"></span>
+    </div>
+
+    <div class="points-preview" x-show="couponType === 'investment'"
+         style="background:linear-gradient(135deg,#fef3c7,#fde68a);color:#92400e;">
+      解锁额外支付: <span style="font-size:1.5rem;font-weight:900;" x-text="unlockExtraPct(investmentExchangeCount) + '%'"></span>
     </div>
 
     <div class="modal-actions">
@@ -1975,20 +1981,43 @@ function app() {
 
     async redeemReward(r) {
       const cost = r.surged_cost || r.cost_points;
-      if (this.currentPoints < cost) {
-        let hint = '';
-        if (r.pricing_rate > 0) hint = `（含涨价 ${Math.round(r.pricing_rate * 100)}%）`;
-        if (r.pricing_rate < 0) hint = `（已降价 ${Math.round(Math.abs(r.pricing_rate) * 100)}%）`;
-        return this.toast(`积分不够啦，继续加油！💪 还差 ${cost - this.currentPoints} 分${hint}`, 'error');
+
+      // 锁定奖励 + 有解锁券 → 自动选最优券（章数最高 = 额外比例最低）
+      let useUnlockCouponId = null;
+      let unlockExtra = 0;
+      if (r.lock && r.lock.locked && this.investmentCoupons.length > 0) {
+        const best = this.investmentCoupons.reduce((a, b) =>
+          (a.medal_count || 5) >= (b.medal_count || 5) ? a : b
+        );
+        const extraPct = this.unlockExtraPct(best.medal_count || 5) / 100;
+        unlockExtra = Math.max(1, Math.round(cost * extraPct));
+        const totalCost = cost + unlockExtra;
+        if (!confirm(
+          `🔓 使用解锁券（${best.medal_count}章，额外 +${Math.round(extraPct * 100)}%）\n` +
+          `奖励价格 ${cost} 分 + 解锁额外 ${unlockExtra} 分 = 共 ${totalCost} 分\n确定兑换「${r.name}」吗？`
+        )) return;
+        if (this.currentPoints < totalCost) {
+          return this.toast(`积分不足！需要 ${totalCost} 分，当前 ${this.currentPoints} 分`, 'error');
+        }
+        useUnlockCouponId = best.id;
+      } else {
+        if (this.currentPoints < cost) {
+          let hint = '';
+          if (r.pricing_rate > 0) hint = `（含涨价 ${Math.round(r.pricing_rate * 100)}%）`;
+          if (r.pricing_rate < 0) hint = `（已降价 ${Math.round(Math.abs(r.pricing_rate) * 100)}%）`;
+          return this.toast(`积分不够啦，继续加油！💪 还差 ${cost - this.currentPoints} 分${hint}`, 'error');
+        }
+        let confirmMsg = `确定用 ${cost} 积分兑换「${r.name}」吗？`;
+        if (r.pricing_rate > 0) confirmMsg += `\n⚠️ 原价 ${r.cost_points} 分，当前涨价 ${Math.round(r.pricing_rate * 100)}%`;
+        if (r.pricing_rate < 0) confirmMsg += `\n🎉 原价 ${r.cost_points} 分，当前降价 ${Math.round(Math.abs(r.pricing_rate) * 100)}%`;
+        if (!confirm(confirmMsg)) return;
       }
-      let confirmMsg = `确定用 ${cost} 积分兑换「${r.name}」吗？`;
-      if (r.pricing_rate > 0) confirmMsg += `\n⚠️ 原价 ${r.cost_points} 分，当前涨价 ${Math.round(r.pricing_rate * 100)}%`;
-      if (r.pricing_rate < 0) confirmMsg += `\n🎉 原价 ${r.cost_points} 分，当前降价 ${Math.round(Math.abs(r.pricing_rate) * 100)}%`;
-      if (!confirm(confirmMsg)) return;
       try {
-        const res = await this.api(`/rewards/redeem`, 'POST', { reward_id: r.id });
+        const body = { reward_id: r.id };
+        if (useUnlockCouponId) body.investment_coupon_id = useUnlockCouponId;
+        const res = await this.api(`/rewards/redeem`, 'POST', body);
         this.toast(res.message);
-        await Promise.all([this.loadGroupInfo(), this.loadRewards(), this.loadLogs(true), this.loadMedals(), this.loadCoupons(), this.loadInvestmentMedals()]);
+        await Promise.all([this.loadGroupInfo(), this.loadRewards(), this.loadLogs(true), this.loadMedals(), this.loadCoupons(), this.loadInvestmentCoupons(), this.loadInvestmentMedals()]);
       } catch (e) { this.toast(e.message, 'error'); }
     },
 
@@ -2032,7 +2061,7 @@ function app() {
           this.toast(`优惠券兑换成功！${count} 章 → ${res.adjustment_pct}% 额度，剩余 ${res.medals_remaining} 章`);
           await Promise.all([this.loadMedals(), this.loadCoupons()]);
         } else {
-          this.toast(`投资券兑换成功！获得 ${res.coupons_created} 张，剩余 ${res.medals_remaining} 章`);
+          this.toast(`解锁券兑换成功！${count} 章 → 额外支付 ${res.unlock_extra_pct}%，剩余 ${res.medals_remaining} 章`);
           await Promise.all([this.loadInvestmentMedals(), this.loadInvestmentCoupons()]);
         }
       } catch (e) { this.toast(e.message, 'error'); }
@@ -2096,16 +2125,19 @@ function app() {
         this.activeInvestments = (await this.api('/investments/active?child_id=' + this.childId)).investments;
       } catch (e) { console.error('loadActiveInvestments failed', e); }
     },
-    async doUseInvestmentCoupon(couponId) {
-      if (!confirm('使用投资券将扣除 10 分，开始 50 天每日收益（每天 +0.5 分，共 25 分）。确定？')) return;
+    unlockExtraPct(medalCount) {
+      const pct = 50 - (medalCount - 5) * 10;
+      return Math.max(0, pct);
+    },
+    async doUseUnlockCoupon(couponId) {
+      if (!confirm('确定使用这张解锁券吗？')) return;
       try {
-        const res = await this.api('/investments/use', 'POST', {
+        await this.api('/investments/use', 'POST', {
           child_id: this.childId, coupon_id: couponId
         });
-        this.toast(`投资成功！投入 ${res.principal} 分，每天 +0.5 分 × 50 天`);
+        this.toast('解锁券已使用');
         await Promise.all([
-          this.loadGroupInfo(), this.loadInvestmentMedals(),
-          this.loadInvestmentCoupons(), this.loadActiveInvestments(),
+          this.loadInvestmentCoupons(),
         ]);
       } catch (e) { this.toast(e.message, 'error'); }
     },

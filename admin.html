@@ -584,10 +584,10 @@
             <!-- ===== 投资系统 ===== -->
             <hr style="margin: 20px 0; border: none; border-top: 2px dashed #e2e8f0;">
 
-            <h4>💎 今日投资章（投资券）</h4>
+            <h4>💎 今日解锁章（解锁券）</h4>
             <table class="ops-table">
               <thead>
-                <tr><th>孩子</th><th>今日投资章</th><th>未使用投资券</th><th>活跃投资</th></tr>
+                <tr><th>孩子</th><th>今日解锁章</th><th>未使用解锁券</th><th>活跃投资</th></tr>
               </thead>
               <tbody>
                 <template x-if="!investmentStats.length">
@@ -604,19 +604,20 @@
               </tbody>
             </table>
 
-            <h4 style="margin-top:12px;">🎫 所有投资券</h4>
+            <h4 style="margin-top:12px;">🎫 所有解锁券</h4>
             <table class="ops-table">
               <thead>
-                <tr><th>孩子</th><th>奖章数</th><th>状态</th><th>创建时间</th><th>使用时间</th></tr>
+                <tr><th>孩子</th><th>章数</th><th>解锁额外</th><th>状态</th><th>创建时间</th><th>使用时间</th></tr>
               </thead>
               <tbody>
                 <template x-if="!allInvestmentCoupons.length">
-                  <tr><td colspan="5" class="stats-empty">📭 暂无投资券</td></tr>
+                  <tr><td colspan="6" class="stats-empty">📭 暂无解锁券</td></tr>
                 </template>
                 <template x-for="c in allInvestmentCoupons" :key="c.id">
                   <tr>
                     <td x-text="c.child_name"></td>
                     <td><strong x-text="c.medal_count + ' 章'"></strong></td>
+                    <td><strong x-text="'+' + (50 - ((c.medal_count || 5) - 5) * 10) + '%'"></strong></td>
                     <td>
                       <span x-show="c.used" style="color:#94a3b8;">已使用</span>
                       <span x-show="!c.used" style="color:#22c55e;">可用</span>
