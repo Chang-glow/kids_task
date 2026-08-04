@@ -1100,14 +1100,46 @@ function adminApp() {
       this.showChangePwd = false;
     },
 
-    // 统一 admin API 调用：自动附加 token + 401 拦截
-    async adminFetch(path) {
-      const resp = await fetch(path, {
-        headers: { 'Authorization': 'Bearer ' + this.token },
+    // 请求队列：限制并发数，避免打满 Supabase session pooler (15 连接上限)
+    _fetchQueue: [],
+    _fetchRunning: 0,
+    _maxFetchConcurrency: 2,
+    _fetchDelayMs: 150,
+
+    _enqueueFetch() {
+      return new Promise(resolve => {
+        this._fetchQueue.push(resolve);
+        this._drainFetchQueue();
       });
-      if (resp.status === 401) { this.logout(); return null; }
-      if (!resp.ok) return null;
-      return await resp.json();
+    },
+
+    async _drainFetchQueue() {
+      if (this._fetchRunning >= this._maxFetchConcurrency || this._fetchQueue.length === 0) return;
+      const next = this._fetchQueue.shift();
+      this._fetchRunning++;
+      // 小延迟拉开请求间隔，减少瞬时并发
+      await new Promise(r => setTimeout(r, this._fetchDelayMs * this._fetchRunning));
+      next();
+    },
+
+    _releaseFetch() {
+      this._fetchRunning--;
+      this._drainFetchQueue();
+    },
+
+    // 统一 admin API 调用：自动附加 token + 401 拦截，走请求队列限制并发
+    async adminFetch(path) {
+      await this._enqueueFetch();
+      try {
+        const resp = await fetch(path, {
+          headers: { 'Authorization': 'Bearer ' + this.token },
+        });
+        if (resp.status === 401) { this.logout(); return null; }
+        if (!resp.ok) return null;
+        return await resp.json();
+      } finally {
+        this._releaseFetch();
+      }
     },
 
     onActiveGroupChange() {

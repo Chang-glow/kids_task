@@ -2400,23 +2400,54 @@ function app() {
       }
     },
 
+    // === request queue (limit concurrency to avoid exhausting DB pooler) ===
+    _fetchQueue: [],
+    _fetchRunning: 0,
+    _maxFetchConcurrency: 2,
+    _fetchDelayMs: 150,
+
+    _enqueueFetch() {
+      return new Promise(resolve => {
+        this._fetchQueue.push(resolve);
+        this._drainFetchQueue();
+      });
+    },
+
+    async _drainFetchQueue() {
+      if (this._fetchRunning >= this._maxFetchConcurrency || this._fetchQueue.length === 0) return;
+      const next = this._fetchQueue.shift();
+      this._fetchRunning++;
+      await new Promise(r => setTimeout(r, this._fetchDelayMs * this._fetchRunning));
+      next();
+    },
+
+    _releaseFetch() {
+      this._fetchRunning--;
+      this._drainFetchQueue();
+    },
+
     // === utilities ===
     async api(path, method = 'GET', body = null) {
-      const opts = {
-        method,
-        headers: { 'Content-Type': 'application/json', 'X-Group-Code': this.inviteCode },
-      };
-      if (body) opts.body = JSON.stringify(body);
-      const res = await fetch('/api' + path, opts);
-      const text = await res.text();
-      let data;
+      await this._enqueueFetch();
       try {
-        data = JSON.parse(text);
-      } catch {
-        throw new Error(`服务器响应异常 (${res.status}): ${text.slice(0, 300)}`);
+        const opts = {
+          method,
+          headers: { 'Content-Type': 'application/json', 'X-Group-Code': this.inviteCode },
+        };
+        if (body) opts.body = JSON.stringify(body);
+        const res = await fetch('/api' + path, opts);
+        const text = await res.text();
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch {
+          throw new Error(`服务器响应异常 (${res.status}): ${text.slice(0, 300)}`);
+        }
+        if (!res.ok) throw new Error(data.detail || '请求失败');
+        return data;
+      } finally {
+        this._releaseFetch();
       }
-      if (!res.ok) throw new Error(data.detail || '请求失败');
-      return data;
     },
 
     toast(msg, type = 'success') {
