@@ -153,7 +153,8 @@
       <button class="tab" :class="{ active: tab === 'pricing' }" @click="tab = 'pricing'; onActiveGroupChange()">⏰ 时段定价</button>
       <button class="tab" :class="{ active: tab === 'coupons' }" @click="tab = 'coupons'; onActiveGroupChange()">🎟️ 奖章 & 券</button>
       <button class="tab" :class="{ active: tab === 'conditions' }" @click="tab = 'conditions'; onActiveGroupChange()">🎯 附加条件</button>
-      <button class="tab" :class="{ active: tab === 'manage' }" @click="tab = 'manage'; onActiveGroupChange()">📋 任务/奖励</button>
+      <button class="tab" :class="{ active: tab === 'tasks' }" @click="tab = 'tasks'; onActiveGroupChange()">📋 任务</button>
+      <button class="tab" :class="{ active: tab === 'rewards' }" @click="tab = 'rewards'; onActiveGroupChange()">🎁 奖励</button>
     </div>
 
     <!-- ===== Tab: Overview ===== -->
@@ -537,6 +538,79 @@
 
         <template x-if="activeGroupId">
           <div>
+            <!-- 发放表单 -->
+            <div style="padding:14px;background:#f0fdf4;border-radius:12px;margin-bottom:16px;">
+              <h4 style="margin-bottom:10px;">✋ 手动发放</h4>
+
+              <!-- 发放每日奖章 -->
+              <div class="form-row" style="gap:6px;align-items:center;margin-bottom:8px;">
+                <span style="font-size:0.82rem;white-space:nowrap;">🏅 奖章</span>
+                <select x-model="issueMedalForm.child_id" style="flex:1;min-width:100px;">
+                  <option value="">孩子</option>
+                  <template x-for="g in groups" :key="g.id">
+                    <template x-if="g.id == activeGroupId">
+                      <template x-for="c in g.children" :key="c.id">
+                        <option :value="c.id" x-text="c.emoji + ' ' + c.name"></option>
+                      </template>
+                    </template>
+                  </template>
+                </select>
+                <input type="number" x-model="issueMedalForm.count" min="1" style="width:70px;" placeholder="枚数">
+                <button class="btn btn-primary btn-sm" @click="issueMedal()">发放</button>
+              </div>
+
+              <!-- 发放优惠券 -->
+              <div class="form-row" style="gap:6px;align-items:center;margin-bottom:8px;">
+                <span style="font-size:0.82rem;white-space:nowrap;">🎫 优惠券</span>
+                <select x-model="issueCouponForm.child_id" style="flex:1;min-width:100px;">
+                  <option value="">孩子</option>
+                  <template x-for="g in groups" :key="g.id">
+                    <template x-if="g.id == activeGroupId">
+                      <template x-for="c in g.children" :key="c.id">
+                        <option :value="c.id" x-text="c.emoji + ' ' + c.name"></option>
+                      </template>
+                    </template>
+                  </template>
+                </select>
+                <input type="number" x-model="issueCouponForm.medal_count" min="5" style="width:70px;" placeholder="章数">
+                <button class="btn btn-primary btn-sm" @click="issueCoupon()">发放</button>
+              </div>
+
+              <!-- 发放投资章 -->
+              <div class="form-row" style="gap:6px;align-items:center;margin-bottom:8px;">
+                <span style="font-size:0.82rem;white-space:nowrap;">💎 投资章</span>
+                <select x-model="issueInvestMedalForm.child_id" style="flex:1;min-width:100px;">
+                  <option value="">孩子</option>
+                  <template x-for="g in groups" :key="g.id">
+                    <template x-if="g.id == activeGroupId">
+                      <template x-for="c in g.children" :key="c.id">
+                        <option :value="c.id" x-text="c.emoji + ' ' + c.name"></option>
+                      </template>
+                    </template>
+                  </template>
+                </select>
+                <input type="number" x-model="issueInvestMedalForm.count" min="1" style="width:70px;" placeholder="枚数">
+                <button class="btn btn-primary btn-sm" @click="issueInvestMedal()">发放</button>
+              </div>
+
+              <!-- 发放解锁券 -->
+              <div class="form-row" style="gap:6px;align-items:center;">
+                <span style="font-size:0.82rem;white-space:nowrap;">🔓 解锁券</span>
+                <select x-model="issueInvestCouponForm.child_id" style="flex:1;min-width:100px;">
+                  <option value="">孩子</option>
+                  <template x-for="g in groups" :key="g.id">
+                    <template x-if="g.id == activeGroupId">
+                      <template x-for="c in g.children" :key="c.id">
+                        <option :value="c.id" x-text="c.emoji + ' ' + c.name"></option>
+                      </template>
+                    </template>
+                  </template>
+                </select>
+                <input type="number" x-model="issueInvestCouponForm.medal_count" min="5" style="width:70px;" placeholder="章数">
+                <button class="btn btn-primary btn-sm" @click="issueInvestCoupon()">发放</button>
+              </div>
+            </div>
+
             <!-- ===== 优惠券系统 ===== -->
             <h4>🏅 今日奖章（折扣券）</h4>
             <table class="ops-table">
@@ -762,8 +836,8 @@
       </div>
     </div>
 
-    <!-- ===== Tab: 任务/奖励管理 ===== -->
-    <div x-show="tab === 'manage'">
+    <!-- ===== Tab: 任务管理 ===== -->
+    <div x-show="tab === 'tasks'">
       <div class="card">
         <h3>📋 跨群组任务管理</h3>
         <div class="form-row" style="margin-bottom:12px;">
@@ -794,7 +868,7 @@
                 <button class="btn btn-sm" @click="cancelEditTask()" x-show="editingTaskId">取消</button>
               </div>
             </div>
-            <table class="stats-table" x-show="manageTasks.length > 0" style="margin-bottom:20px;">
+            <table class="stats-table" x-show="manageTasks.length > 0">
               <thead><tr><th>名称</th><th>积分</th><th>状态</th><th>操作</th></tr></thead>
               <tbody>
                 <template x-for="t in manageTasks" :key="t.id">
@@ -810,9 +884,27 @@
                 </template>
               </tbody>
             </table>
+          </div>
+        </template>
+      </div>
+    </div>
 
-            <h4 style="margin-bottom:10px;">添加奖励</h4>
+    <!-- ===== Tab: 奖励管理 ===== -->
+    <div x-show="tab === 'rewards'">
+      <div class="card">
+        <h3>🎁 跨群组奖励管理</h3>
+        <div class="form-row" style="margin-bottom:12px;">
+          <select x-model="activeGroupId" @change="onActiveGroupChange()" style="flex:1;">
+            <option value="">请选择群组</option>
+            <template x-for="g in groups" :key="g.id">
+              <option :value="g.id" x-text="g.name + ' (' + g.invite_code + ')'"></option>
+            </template>
+          </select>
+        </div>
+        <template x-if="activeGroupId">
+          <div>
             <div style="padding:14px;background:#f8fafc;border-radius:12px;margin-bottom:14px;">
+              <h4 style="margin-bottom:10px;">添加奖励</h4>
               <div class="form-row" style="gap:8px;flex-wrap:wrap;">
                 <input type="text" x-model="manageRewardForm.name" placeholder="奖励名称" style="flex:1;min-width:120px;">
                 <select x-model="manageRewardForm.emoji" style="width:60px;">
@@ -843,7 +935,7 @@
                         <span style="color:#a0aec0;">无</span>
                       </template>
                       <button class="btn btn-sm" style="margin-left:6px;background:#805ad5;color:#fff;font-size:0.7rem;"
-                              @click="lockModalReward = r">+ 钥匙</button>
+                              @click="openLockModal(r)">+ 钥匙</button>
                     </td>
                     <td><button class="btn btn-sm btn-danger" @click="deleteManageReward(r.id)">删除</button></td>
                   </tr>
@@ -960,6 +1052,10 @@ function adminApp() {
     investmentStats: [],
     allInvestmentCoupons: [],
     activeInvestmentsList: [],
+    issueMedalForm: { child_id: '', count: 1 },
+    issueCouponForm: { child_id: '', medal_count: 5 },
+    issueInvestMedalForm: { child_id: '', count: 1 },
+    issueInvestCouponForm: { child_id: '', medal_count: 5 },
     pricingForm: { reward_id: '', override_type: 'lock_in', surge_peak_rate: 0.25, sale_trough_rate: 0.15, plateau_minutes: 0, partial_peak_factor: 1.0, duration_days: 0 },
 
     // Manage tab
@@ -1150,7 +1246,8 @@ function adminApp() {
       else if (this.tab === 'pricing') this.loadPricingOverrides();
       else if (this.tab === 'coupons') { this.loadMedalStats(); this.loadAllCoupons(); this.loadInvestmentStats(); this.loadAllInvestmentCoupons(); this.loadActiveInvestmentsList(); }
       else if (this.tab === 'conditions') this.loadConditions();
-      else if (this.tab === 'manage') this.loadManageData();
+      else if (this.tab === 'tasks') this.loadManageTasks();
+      else if (this.tab === 'rewards') this.loadManageRewards();
     },
 
     // Points
@@ -1484,6 +1581,56 @@ function adminApp() {
       if (data) this.activeInvestmentsList = data;
     },
 
+    // === Issue Medals & Coupons ===
+    async issueMedal() {
+      if (!this.issueMedalForm.child_id) return this.showToast('请选择孩子', 'error');
+      const body = { ...this.issueMedalForm, group_id: parseInt(this.activeGroupId) };
+      const resp = await fetch('/api/admin/medals/issue', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + this.token },
+        body: JSON.stringify(body),
+      });
+      if (!resp.ok) { const d = await resp.json(); this.showToast(d.detail || '发放失败', 'error'); return; }
+      this.issueMedalForm = { child_id: '', count: 1 };
+      this.loadMedalStats();
+      this.showToast('奖章已发放');
+    },
+    async issueCoupon() {
+      if (!this.issueCouponForm.child_id) return this.showToast('请选择孩子', 'error');
+      const body = { ...this.issueCouponForm, group_id: parseInt(this.activeGroupId) };
+      const resp = await fetch('/api/admin/coupons/issue', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + this.token },
+        body: JSON.stringify(body),
+      });
+      if (!resp.ok) { const d = await resp.json(); this.showToast(d.detail || '发放失败', 'error'); return; }
+      this.issueCouponForm = { child_id: '', medal_count: 5 };
+      this.loadAllCoupons();
+      this.showToast('优惠券已发放');
+    },
+    async issueInvestMedal() {
+      if (!this.issueInvestMedalForm.child_id) return this.showToast('请选择孩子', 'error');
+      const body = { ...this.issueInvestMedalForm, group_id: parseInt(this.activeGroupId) };
+      const resp = await fetch('/api/admin/investment-medals/issue', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + this.token },
+        body: JSON.stringify(body),
+      });
+      if (!resp.ok) { const d = await resp.json(); this.showToast(d.detail || '发放失败', 'error'); return; }
+      this.issueInvestMedalForm = { child_id: '', count: 1 };
+      this.loadInvestmentStats();
+      this.showToast('投资章已发放');
+    },
+    async issueInvestCoupon() {
+      if (!this.issueInvestCouponForm.child_id) return this.showToast('请选择孩子', 'error');
+      const body = { ...this.issueInvestCouponForm, group_id: parseInt(this.activeGroupId) };
+      const resp = await fetch('/api/admin/investment-coupons/issue', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + this.token },
+        body: JSON.stringify(body),
+      });
+      if (!resp.ok) { const d = await resp.json(); this.showToast(d.detail || '发放失败', 'error'); return; }
+      this.issueInvestCouponForm = { child_id: '', medal_count: 5 };
+      this.loadAllInvestmentCoupons();
+      this.showToast('解锁券已发放');
+    },
+
     // === Conditions ===
     async loadConditions() {
       if (!this.activeGroupId) return;
@@ -1594,15 +1741,26 @@ function adminApp() {
       this.showToast('条件覆盖已更新');
     },
 
-    // === Manage Tasks/Rewards ===
-    async loadManageData() {
+    // === Manage Tasks ===
+    async loadManageTasks() {
       if (!this.activeGroupId) return;
-      const [tasks, rewards] = await Promise.all([
-        this.adminFetch('/api/admin/tasks?group_id=' + this.activeGroupId),
-        this.adminFetch('/api/admin/rewards?group_id=' + this.activeGroupId),
-      ]);
+      const tasks = await this.adminFetch('/api/admin/tasks?group_id=' + this.activeGroupId);
       if (tasks) this.manageTasks = Array.isArray(tasks) ? tasks : [];
+    },
+
+    // === Manage Rewards ===
+    async loadManageRewards() {
+      if (!this.activeGroupId) return;
+      const rewards = await this.adminFetch('/api/admin/rewards?group_id=' + this.activeGroupId);
       if (rewards) this.manageRewards = Array.isArray(rewards) ? rewards : [];
+    },
+
+    async openLockModal(reward) {
+      if (!this.manageTasks.length) {
+        const tasks = await this.adminFetch('/api/admin/tasks?group_id=' + this.activeGroupId);
+        if (tasks) this.manageTasks = Array.isArray(tasks) ? tasks : [];
+      }
+      this.lockModalReward = reward;
     },
 
     async addManageTask() {
@@ -1620,14 +1778,14 @@ function adminApp() {
       }
       this.manageTaskForm = { name: '', emoji: '📖', base_points: 20, description: '', is_repeatable: false };
       this.editingTaskId = null;
-      this.loadManageData();
+      this.loadManageTasks();
       this.showToast('任务已添加');
     },
 
     async deleteManageTask(id) {
       if (!confirm('确定删除此任务？')) return;
       await fetch('/api/admin/groups/' + this.activeGroupId + '/tasks/' + id, { method: 'DELETE', headers: { 'Authorization': 'Bearer ' + this.token } });
-      this.loadManageData();
+      this.loadManageTasks();
       this.showToast('任务已删除');
     },
 
@@ -1661,7 +1819,7 @@ function adminApp() {
       }
       this.manageTaskForm = { name: '', emoji: '📖', base_points: 20, description: '', is_repeatable: false };
       this.editingTaskId = null;
-      this.loadManageData();
+      this.loadManageTasks();
       this.showToast('任务已更新');
     },
 
@@ -1684,14 +1842,14 @@ function adminApp() {
         return;
       }
       this.manageRewardForm = { name: '', emoji: '📺', cost_points: 50 };
-      this.loadManageData();
+      this.loadManageRewards();
       this.showToast('奖励已添加');
     },
 
     async deleteManageReward(id) {
       if (!confirm('确定删除此奖励？')) return;
       await fetch('/api/admin/groups/' + this.activeGroupId + '/rewards/' + id, { method: 'DELETE', headers: { 'Authorization': 'Bearer ' + this.token } });
-      this.loadManageData();
+      this.loadManageRewards();
       this.showToast('奖励已删除');
     },
 
@@ -1706,7 +1864,7 @@ function adminApp() {
         body: JSON.stringify({ reward_id: rewardId, task_id: parseInt(taskId), group_id: parseInt(this.activeGroupId) }),
       });
       if (!resp.ok) { const d = await resp.json(); this.showToast(d.detail || '添加失败', 'error'); return; }
-      await this.loadManageData();
+      await this.loadManageRewards();
       // Refresh lockModalReward
       const updated = this.manageRewards.find(r => r.id === rewardId);
       if (updated) this.lockModalReward = updated;
@@ -1718,7 +1876,7 @@ function adminApp() {
         headers: { 'Authorization': 'Bearer ' + this.token },
       });
       if (!resp.ok) { const d = await resp.json(); this.showToast(d.detail || '删除失败', 'error'); return; }
-      await this.loadManageData();
+      await this.loadManageRewards();
       const updated = this.manageRewards.find(r => r.id === rewardId);
       if (updated) this.lockModalReward = updated;
       this.showToast('钥匙已移除');
@@ -1730,7 +1888,7 @@ function adminApp() {
         headers: { 'Authorization': 'Bearer ' + this.token },
       });
       if (!resp.ok) { const d = await resp.json(); this.showToast(d.detail || '删除失败', 'error'); return; }
-      await this.loadManageData();
+      await this.loadManageRewards();
       this.showToast('钥匙已清除');
     },
 

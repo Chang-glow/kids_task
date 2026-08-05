@@ -33,10 +33,9 @@ def get_rewards(group_id: int = Depends(get_group_id)):
             locks = get_reward_locks(cur, r["id"], group_id)
             pending = []
             for lk in locks:
-                if lk["key_task_status"] == "done":
-                    cd = lk["completed_at"].date() if lk["completed_at"] else None
-                    if cd == today:
-                        continue
+                cd = lk["completed_at"].date() if lk["completed_at"] else None
+                if cd == today:
+                    continue
                 pending.append(lk["key_task_name"])
             locks_by_reward[r["id"]] = {"locked": len(pending) > 0, "pending_tasks": pending,
                                          "total_keys": len(locks)} if locks else None

@@ -46,6 +46,16 @@ class ExchangeCouponRequest(BaseModel):
     medal_count: int
 
 
+class AdminIssueMedalRequest(BaseModel):
+    child_id: int
+    count: int  # >= 1
+
+
+class AdminIssueCouponRequest(BaseModel):
+    child_id: int
+    medal_count: int  # >= 5
+
+
 class PunishRequest(BaseModel):
     name: str
     emoji: str

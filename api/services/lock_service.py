@@ -60,10 +60,9 @@ def check_reward_unlocked(cur, reward_id: int, group_id: int, today) -> tuple[bo
     pending = []
     for lock in locks:
         task_name = lock["key_task_name"]
-        if lock["key_task_status"] == "done":
-            completed_date = lock["completed_at"].date() if lock["completed_at"] else None
-            if completed_date == today:
-                continue
+        completed_date = lock["completed_at"].date() if lock["completed_at"] else None
+        if completed_date == today:
+            continue
         pending.append(task_name)
 
     if pending:

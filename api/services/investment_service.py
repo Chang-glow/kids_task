@@ -1,7 +1,7 @@
 """投资系统服务：投资章 → 解锁券 → 跳过锁兑换。"""
 
 
-def award_investment_medal(cur, child_id: int, group_id: int, task_id: int, today) -> int:
+def award_investment_medal(cur, child_id: int, group_id: int, task_id: int | None, today) -> int:
     """完成任务后奖励 1 枚投资章（同一任务当天只给 1 枚），返回今日累计数。"""
     cur.execute(
         """INSERT INTO investment_medals (child_id, group_id, task_id, medal_date)

@@ -1488,3 +1488,121 @@ def admin_get_active_investments(group_id: int, _token: str = Depends(_require_a
     investments = [dict(r) for r in cur.fetchall()]
     conn.close()
     return investments
+
+
+@router.post("/medals/issue")
+def admin_issue_medal(req: dict, _token: str = Depends(_require_admin)):
+    """Admin: 手动发放每日奖章给孩子。"""
+    from api.models.schemas import AdminIssueMedalRequest
+    body = AdminIssueMedalRequest.model_validate(req)
+    group_id = req.get("group_id")
+    if not group_id:
+        raise HTTPException(status_code=400, detail="缺少 group_id")
+    if body.count < 1:
+        raise HTTPException(status_code=400, detail="数量必须 >= 1")
+    conn = get_db()
+    cur = conn.cursor()
+    now = now_cst()
+    today = now.date()
+    cur.execute("SELECT id FROM children WHERE id = %s AND group_id = %s", (body.child_id, group_id))
+    if not cur.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="孩子不存在")
+    cur.execute(
+        """INSERT INTO daily_medals (child_id, group_id, medal_date, count)
+           VALUES (%s, %s, %s, %s)
+           ON CONFLICT (child_id, medal_date) DO UPDATE
+           SET count = daily_medals.count + %s
+           RETURNING count""",
+        (body.child_id, group_id, today, body.count, body.count),
+    )
+    new_count = cur.fetchone()["count"]
+    conn.commit()
+    conn.close()
+    return {"success": True, "child_id": body.child_id, "issued": body.count, "total_today": new_count}
+
+
+@router.post("/coupons/issue")
+def admin_issue_coupon(req: dict, _token: str = Depends(_require_admin)):
+    """Admin: 手动发放优惠券给孩子（不消耗奖章）。"""
+    from api.models.schemas import AdminIssueCouponRequest
+    body = AdminIssueCouponRequest.model_validate(req)
+    group_id = req.get("group_id")
+    if not group_id:
+        raise HTTPException(status_code=400, detail="缺少 group_id")
+    if body.medal_count < 5:
+        raise HTTPException(status_code=400, detail="奖章数必须 >= 5")
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT id FROM children WHERE id = %s AND group_id = %s", (body.child_id, group_id))
+    if not cur.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="孩子不存在")
+    now = now_cst()
+    cur.execute(
+        """INSERT INTO coupons (child_id, group_id, medal_count, created_at)
+           VALUES (%s, %s, %s, %s) RETURNING id""",
+        (body.child_id, group_id, body.medal_count, now),
+    )
+    coupon_id = cur.fetchone()["id"]
+    conn.commit()
+    conn.close()
+    return {"success": True, "coupon_id": coupon_id, "child_id": body.child_id, "medal_count": body.medal_count}
+
+
+@router.post("/investment-medals/issue")
+def admin_issue_investment_medal(req: dict, _token: str = Depends(_require_admin)):
+    """Admin: 手动发放投资章给孩子。"""
+    from api.models.schemas import AdminIssueMedalRequest
+    body = AdminIssueMedalRequest.model_validate(req)
+    group_id = req.get("group_id")
+    if not group_id:
+        raise HTTPException(status_code=400, detail="缺少 group_id")
+    if body.count < 1:
+        raise HTTPException(status_code=400, detail="数量必须 >= 1")
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT id FROM children WHERE id = %s AND group_id = %s", (body.child_id, group_id))
+    if not cur.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="孩子不存在")
+    today = now_cst().date()
+    from api.services.investment_service import award_investment_medal
+    for _ in range(body.count):
+        award_investment_medal(cur, body.child_id, group_id, None, today)
+    cur.execute(
+        "SELECT COUNT(*) as cnt FROM investment_medals WHERE child_id = %s AND medal_date = %s",
+        (body.child_id, today),
+    )
+    total = cur.fetchone()["cnt"]
+    conn.commit()
+    conn.close()
+    return {"success": True, "child_id": body.child_id, "issued": body.count, "total_today": total}
+
+
+@router.post("/investment-coupons/issue")
+def admin_issue_investment_coupon(req: dict, _token: str = Depends(_require_admin)):
+    """Admin: 手动发放解锁券给孩子。"""
+    from api.models.schemas import AdminIssueCouponRequest
+    body = AdminIssueCouponRequest.model_validate(req)
+    group_id = req.get("group_id")
+    if not group_id:
+        raise HTTPException(status_code=400, detail="缺少 group_id")
+    if body.medal_count < 5:
+        raise HTTPException(status_code=400, detail="奖章数必须 >= 5")
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT id FROM children WHERE id = %s AND group_id = %s", (body.child_id, group_id))
+    if not cur.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="孩子不存在")
+    now = now_cst()
+    cur.execute(
+        """INSERT INTO investment_coupons (child_id, group_id, medal_count, created_at)
+           VALUES (%s, %s, %s, %s) RETURNING id""",
+        (body.child_id, group_id, body.medal_count, now),
+    )
+    coupon_id = cur.fetchone()["id"]
+    conn.commit()
+    conn.close()
+    return {"success": True, "coupon_id": coupon_id, "child_id": body.child_id, "medal_count": body.medal_count}
