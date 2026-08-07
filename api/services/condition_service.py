@@ -160,7 +160,7 @@ def calculate_condition_result(
     star_mult = STAR_MULTIPLIERS[star_rating]
     daily_mult = daily_multiplier if daily_multiplier else 1.0
 
-    cond_mult_sum = 0.0  # 所有条件倍率加算（delta 累加）
+    cond_mult = 1.0  # 所有条件倍率乘算（通过 ×val，失败 ÷val）
     cond_bonus = 0
     desc_parts = []
 
@@ -170,8 +170,10 @@ def calculate_condition_result(
 
         if rt in ("multiplier", "both") and c.get("multiplier_value"):
             val = float(c["multiplier_value"])
-            delta = val - 1.0
-            cond_mult_sum += delta if passed else -delta
+            if passed:
+                cond_mult *= val
+            else:
+                cond_mult /= val
 
         if rt in ("bonus_points", "both") and c.get("bonus_value"):
             val = int(c["bonus_value"])
@@ -181,7 +183,6 @@ def calculate_condition_result(
         if desc:
             desc_parts.append(desc)
 
-    cond_mult = 1.0 + cond_mult_sum
     raw = base_points * star_mult * daily_mult * cond_mult
     final = max(1, round(raw) + cond_bonus)
 
