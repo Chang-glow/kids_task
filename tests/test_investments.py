@@ -399,3 +399,125 @@ class TestDatabaseTables:
             )
             assert cur.fetchone()["exists"] is True, f"Table {t} should exist"
         conn.close()
+
+
+class TestAdminUnlockCoupon:
+    """后台发放解锁券 → 孩子正常消耗 + 后台删除。"""
+
+    def _locked_reward(self, client, group_ctx, admin_token):
+        """准备一个被钥匙锁定的奖励，返回 reward_id。"""
+        h = group_ctx["headers"]
+        kt = client.post("/api/tasks", json={
+            "name": "钥匙", "emoji": "🔑", "base_points": 50,
+        }, headers=h).json()
+        rr = client.post("/api/rewards", json={
+            "name": "奖励", "emoji": "🎁", "cost_points": 50,
+        }, headers=h).json()
+        client.post("/api/admin/reward-locks", json={
+            "reward_id": rr["id"], "task_id": kt["id"], "group_id": group_ctx["id"],
+        }, headers=admin_token)
+        return rr["id"]
+
+    def _issue(self, client, admin_token, gid, child_id, medal_count=10):
+        return client.post("/api/admin/investment-coupons/issue", json={
+            "child_id": child_id, "medal_count": medal_count, "group_id": gid,
+        }, headers=admin_token)
+
+    def _give_points(self, client, group_ctx, admin_token, child_id, points=100):
+        return client.post("/api/admin/points", json={
+            "child_id": child_id, "group_id": group_ctx["id"],
+            "mode": "set", "value": points,
+        }, headers=admin_token)
+
+    def test_admin_issued_coupon_redeemable(self, client, group_ctx, admin_token):
+        """后台发放给首孩子的解锁券可被正常消耗。"""
+        h = group_ctx["headers"]
+        child_id = group_ctx["children"][0]["id"]
+        reward_id = self._locked_reward(client, group_ctx, admin_token)
+
+        res = self._issue(client, admin_token, group_ctx["id"], child_id, 10)
+        assert res.status_code == 200, res.text
+        coupon_id = res.json()["coupon_id"]
+
+        self._give_points(client, group_ctx, admin_token, child_id, 100)
+
+        r = client.post("/api/rewards/redeem", json={
+            "reward_id": reward_id, "investment_coupon_id": coupon_id,
+        }, headers=h)
+        assert r.status_code == 200, r.text
+
+    def test_redeem_with_explicit_child_id(self, client, group_ctx, admin_token):
+        """后台发给第二个孩子的券，显式传 child_id 后可消耗。"""
+        h = group_ctx["headers"]
+        c2 = client.post("/api/children", json={"name": "老二", "emoji": "👧"}, headers=h).json()
+        reward_id = self._locked_reward(client, group_ctx, admin_token)
+
+        res = self._issue(client, admin_token, group_ctx["id"], c2["id"], 10)
+        assert res.status_code == 200, res.text
+        coupon_id = res.json()["coupon_id"]
+
+        self._give_points(client, group_ctx, admin_token, c2["id"], 100)
+
+        r = client.post("/api/rewards/redeem", json={
+            "reward_id": reward_id, "investment_coupon_id": coupon_id, "child_id": c2["id"],
+        }, headers=h)
+        assert r.status_code == 200, r.text
+
+    def test_redeem_wrong_child_id_rejected(self, client, group_ctx, admin_token):
+        """券属于首孩子，用第二个孩子的 child_id 兑换被拒（IDOR 防护）。"""
+        h = group_ctx["headers"]
+        child1 = group_ctx["children"][0]["id"]
+        c2 = client.post("/api/children", json={"name": "老二", "emoji": "👧"}, headers=h).json()
+        reward_id = self._locked_reward(client, group_ctx, admin_token)
+
+        res = self._issue(client, admin_token, group_ctx["id"], child1, 10)
+        coupon_id = res.json()["coupon_id"]
+
+        r = client.post("/api/rewards/redeem", json={
+            "reward_id": reward_id, "investment_coupon_id": coupon_id, "child_id": c2["id"],
+        }, headers=h)
+        assert r.status_code == 400, r.text
+
+    def test_admin_delete_unlock_coupon(self, client, group_ctx, admin_token):
+        """后台可删除未使用的解锁券。"""
+        child_id = group_ctx["children"][0]["id"]
+        res = self._issue(client, admin_token, group_ctx["id"], child_id, 10)
+        coupon_id = res.json()["coupon_id"]
+
+        before = client.get(
+            f"/api/admin/investment-coupons?group_id={group_ctx['id']}", headers=admin_token,
+        ).json()
+        assert any(c["id"] == coupon_id for c in before)
+
+        d = client.delete(
+            f"/api/admin/investment-coupons/{coupon_id}?group_id={group_ctx['id']}",
+            headers=admin_token,
+        )
+        assert d.status_code == 200, d.text
+
+        after = client.get(
+            f"/api/admin/investment-coupons?group_id={group_ctx['id']}", headers=admin_token,
+        ).json()
+        assert all(c["id"] != coupon_id for c in after)
+
+    def test_admin_delete_used_coupon_noop(self, client, group_ctx, admin_token):
+        """已使用的解锁券不可删除（保留审计）。"""
+        h = group_ctx["headers"]
+        child_id = group_ctx["children"][0]["id"]
+        res = self._issue(client, admin_token, group_ctx["id"], child_id, 10)
+        coupon_id = res.json()["coupon_id"]
+
+        client.post("/api/investments/use", json={
+            "child_id": child_id, "coupon_id": coupon_id,
+        }, headers=h)
+
+        d = client.delete(
+            f"/api/admin/investment-coupons/{coupon_id}?group_id={group_ctx['id']}",
+            headers=admin_token,
+        )
+        assert d.status_code == 200, d.text
+
+        after = client.get(
+            f"/api/admin/investment-coupons?group_id={group_ctx['id']}", headers=admin_token,
+        ).json()
+        assert any(c["id"] == coupon_id for c in after)

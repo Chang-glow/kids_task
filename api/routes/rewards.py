@@ -97,11 +97,18 @@ def redeem_reward(req: RedeemRewardRequest, group_id: int = Depends(get_group_id
         if not reward:
             raise HTTPException(status_code=404, detail="奖励不存在")
 
-        # Get first child
-        cur.execute("SELECT id, total_points FROM children WHERE group_id = %s ORDER BY id LIMIT 1", (group_id,))
-        child = cur.fetchone()
-        if not child:
-            raise HTTPException(status_code=400, detail="群组中没有孩子")
+        # 确定孩子：优先用请求里的 child_id，缺省回退到群组第一个孩子
+        if req.child_id is not None:
+            cur.execute("SELECT id, total_points FROM children WHERE id = %s AND group_id = %s",
+                        (req.child_id, group_id))
+            child = cur.fetchone()
+            if not child:
+                raise HTTPException(status_code=400, detail="孩子不存在或不属于该群组")
+        else:
+            cur.execute("SELECT id, total_points FROM children WHERE group_id = %s ORDER BY id LIMIT 1", (group_id,))
+            child = cur.fetchone()
+            if not child:
+                raise HTTPException(status_code=400, detail="群组中没有孩子")
         current_points = child["total_points"]
 
         # 奖励锁检查：所有钥匙任务今日均完成才可兑换

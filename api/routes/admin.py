@@ -1473,6 +1473,24 @@ def admin_get_investment_coupons(group_id: int, _token: str = Depends(_require_a
     return coupons
 
 
+@router.delete("/investment-coupons/{coupon_id}")
+def admin_delete_investment_coupon(coupon_id: int, group_id: int,
+                                   _token: str = Depends(_require_admin)):
+    """Admin: 删除未使用的解锁券（已使用的保留审计）。"""
+    from api.services.investment_service import delete_investment_coupon
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        result = delete_investment_coupon(cur, coupon_id, group_id)
+        conn.commit()
+        return result
+    except Exception:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail="服务器内部错误")
+    finally:
+        conn.close()
+
+
 @router.get("/active-investments")
 def admin_get_active_investments(group_id: int, _token: str = Depends(_require_admin)):
     """Admin: 查看群组所有活跃投资。"""

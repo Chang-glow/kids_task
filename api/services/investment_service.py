@@ -69,6 +69,15 @@ def exchange_investment_coupon(cur, child_id: int, group_id: int,
     }
 
 
+def delete_investment_coupon(cur, coupon_id: int, group_id: int) -> dict:
+    """删除未使用的解锁券（已使用的保留审计）。"""
+    cur.execute(
+        "DELETE FROM investment_coupons WHERE id = %s AND group_id = %s AND used = false",
+        (coupon_id, group_id),
+    )
+    return {"success": True}
+
+
 def get_child_investment_coupons(cur, child_id: int, group_id: int) -> list[dict]:
     """列出孩子所有未使用的投资券。"""
     cur.execute(

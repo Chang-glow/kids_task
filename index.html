@@ -2013,7 +2013,7 @@ function app() {
         if (!confirm(confirmMsg)) return;
       }
       try {
-        const body = { reward_id: r.id };
+        const body = { reward_id: r.id, child_id: this.childId };
         if (useUnlockCouponId) body.investment_coupon_id = useUnlockCouponId;
         const res = await this.api(`/rewards/redeem`, 'POST', body);
         this.toast(res.message);
