@@ -917,7 +917,24 @@
                   <option value="🍕">🍕</option><option value="🎵">🎵</option><option value="🌟">🌟</option>
                 </select>
                 <input type="number" x-model="manageRewardForm.cost_points" placeholder="所需积分" min="1" style="width:100px;">
+                <label style="font-size:0.82rem;white-space:nowrap;"><input type="checkbox" x-model="manageRewardForm.lock_enabled"> 🔒 需要钥匙</label>
                 <button class="btn btn-primary btn-sm" @click="addManageReward()">添加</button>
+              </div>
+              <div x-show="manageRewardForm.lock_enabled" style="margin-top:8px;">
+                <div style="font-weight:700;font-size:0.82rem;margin-bottom:6px;">钥匙任务（当日完成全部才能兑换）：</div>
+                <template x-if="manageTasks.length > 0">
+                  <div style="display:flex;flex-wrap:wrap;gap:6px;">
+                    <template x-for="t in manageTasks" :key="t.id">
+                      <label style="font-size:0.78rem;display:flex;align-items:center;gap:4px;background:#f0f0f0;padding:4px 10px;border-radius:8px;cursor:pointer;">
+                        <input type="checkbox" :value="t.id" x-model="manageRewardForm.key_task_ids">
+                        <span x-text="t.emoji + ' ' + t.name"></span>
+                      </label>
+                    </template>
+                  </div>
+                </template>
+                <template x-if="!manageTasks.length">
+                  <span style="color:#a0aec0;font-size:0.78rem;">暂无任务，请先在「任务管理」添加任务</span>
+                </template>
               </div>
             </div>
             <table class="stats-table" x-show="manageRewards.length > 0">
@@ -1066,7 +1083,7 @@ function adminApp() {
     manageTasks: [],
     manageRewards: [],
     manageTaskForm: { name: '', emoji: '📖', base_points: 20, description: '', is_repeatable: false },
-    manageRewardForm: { name: '', emoji: '📺', cost_points: 50 },
+    manageRewardForm: { name: '', emoji: '📺', cost_points: 50, lock_enabled: false, key_task_ids: [] },
     editingTaskId: null,
     lockModalReward: null,
 
@@ -1766,8 +1783,12 @@ function adminApp() {
     // === Manage Rewards ===
     async loadManageRewards() {
       if (!this.activeGroupId) return;
-      const rewards = await this.adminFetch('/api/admin/rewards?group_id=' + this.activeGroupId);
+      const [rewards, tasks] = await Promise.all([
+        this.adminFetch('/api/admin/rewards?group_id=' + this.activeGroupId),
+        this.adminFetch('/api/admin/tasks?group_id=' + this.activeGroupId),
+      ]);
       if (rewards) this.manageRewards = Array.isArray(rewards) ? rewards : [];
+      if (tasks) this.manageTasks = Array.isArray(tasks) ? tasks : [];
     },
 
     async openLockModal(reward) {
@@ -1845,10 +1866,11 @@ function adminApp() {
 
     async addManageReward() {
       if (!this.manageRewardForm.name.trim()) return this.showToast('请输入奖励名称', 'error');
+      const form = this.manageRewardForm;
       const resp = await fetch('/api/admin/groups/' + this.activeGroupId + '/rewards', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + this.token },
-        body: JSON.stringify(this.manageRewardForm),
+        body: JSON.stringify({ name: form.name, emoji: form.emoji, cost_points: form.cost_points }),
       });
       if (!resp.ok) {
         let detail = '添加失败';
@@ -1856,7 +1878,17 @@ function adminApp() {
         this.showToast(detail, 'error');
         return;
       }
-      this.manageRewardForm = { name: '', emoji: '📺', cost_points: 50 };
+      const reward = await resp.json();
+      if (form.lock_enabled && form.key_task_ids.length > 0) {
+        for (const taskId of form.key_task_ids) {
+          await fetch('/api/admin/reward-locks', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + this.token },
+            body: JSON.stringify({ reward_id: reward.id, task_id: parseInt(taskId), group_id: parseInt(this.activeGroupId) }),
+          });
+        }
+      }
+      this.manageRewardForm = { name: '', emoji: '📺', cost_points: 50, lock_enabled: false, key_task_ids: [] };
       this.loadManageRewards();
       this.showToast('奖励已添加');
     },
