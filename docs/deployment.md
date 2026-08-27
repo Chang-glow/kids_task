@@ -25,7 +25,7 @@ vercel deploy
 | 变量 | 说明 |
 |------|------|
 | `DATABASE_URL` | PostgreSQL 连接字符串 |
-| `ADMIN_JWT_SECRET` | Admin JWT 签名密钥（不设则自动生成） |
+| `ADMIN_JWT_SECRET` | Admin JWT 签名密钥（**必设**）。Vercel 多实例部署时若不设固定值，各实例随机密钥互不信任，admin 会频繁被踢登录。代码同时兼容旧名 `JWT_SECRET`。本地单实例运行不设也能用（回退随机密钥，仅开发期）。 |
 
 ### 已知坑点
 

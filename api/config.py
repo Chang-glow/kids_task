@@ -4,11 +4,22 @@
 
 import os
 import secrets
+import logging
 from datetime import datetime, timezone, timedelta
 
-# JWT 签名密钥，Vercel 多实例共享同一密钥。
-# 生产环境通过 Vercel dashboard → Environment Variables 设置，本地通过 .env。
-JWT_SECRET = os.environ.get("JWT_SECRET", secrets.token_hex(32))
+logger = logging.getLogger(__name__)
+
+# JWT 签名密钥。Vercel 多实例必须设固定值，否则各实例随机密钥互不信任 → admin 频繁被踢。
+# 变量名优先 ADMIN_JWT_SECRET（与部署文档一致），兼容旧名 JWT_SECRET。
+# 生产环境通过 Vercel dashboard → Environment Variables 设置；不设则本地单实例用随机值（仅开发期可用）。
+_jwt_secret = os.environ.get("ADMIN_JWT_SECRET") or os.environ.get("JWT_SECRET")
+if _jwt_secret is None:
+    logger.warning(
+        "JWT_SECRET 未设置固定值，已回退随机密钥。Vercel 多实例部署会导致 admin 频繁被踢登录，"
+        "请在环境变量中设置 ADMIN_JWT_SECRET（推荐）或 JWT_SECRET。"
+    )
+    _jwt_secret = secrets.token_hex(32)
+JWT_SECRET = _jwt_secret
 
 # 数据库（环境变量优先，Vercel dashboard 或 .env 中设置）
 DATABASE_URL = os.environ.get(
