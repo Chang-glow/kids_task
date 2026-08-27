@@ -1371,17 +1371,20 @@ def admin_get_reward_locks(group_id: int, _token: str = Depends(_require_admin))
 
 @router.post("/reward-locks")
 def admin_add_reward_lock(req: dict, _token: str = Depends(_require_admin)):
-    """Admin: 为奖励添加钥匙任务绑定。"""
+    """Admin: 为奖励添加钥匙任务绑定（可选 lock_group 分组）。"""
     reward_id = req.get("reward_id")
     task_id = req.get("task_id")
     group_id = req.get("group_id")
     if not reward_id or not task_id or not group_id:
         raise HTTPException(status_code=400, detail="缺少 reward_id / task_id / group_id")
+    lock_group = req.get("lock_group")
+    if lock_group is not None:
+        lock_group = int(lock_group)
     from api.services.lock_service import add_reward_lock
     conn = get_db()
     cur = conn.cursor()
     try:
-        result = add_reward_lock(cur, reward_id, task_id, group_id)
+        result = add_reward_lock(cur, reward_id, task_id, group_id, lock_group)
         conn.commit()
         return result
     except Exception:

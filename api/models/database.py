@@ -495,10 +495,13 @@ def init_db():
             reward_id INTEGER REFERENCES rewards(id) ON DELETE CASCADE,
             task_id INTEGER REFERENCES tasks(id) ON DELETE CASCADE,
             group_id INTEGER REFERENCES family_groups(id),
+            lock_group INTEGER,
             created_at TIMESTAMP NOT NULL DEFAULT NOW(),
             UNIQUE(reward_id, task_id)
         )
     """)
+    # 迁移：钥匙分组 —— 同组内任选其一完成
+    cur.execute("ALTER TABLE reward_locks ADD COLUMN IF NOT EXISTS lock_group INTEGER")
     # 迁移：旧版 reward_locks 的 UNIQUE(reward_id) 改为 UNIQUE(reward_id, task_id)
     cur.execute("""
         DO $$

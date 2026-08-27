@@ -1,4 +1,4 @@
-"""Tests for reward lock system: multi-key, all-completed-today unlock."""
+"""Tests for reward lock system: 分组钥匙(每组需≥1完成才解锁); 未分组(lock_group=NULL)钥匙不参与锁。"""
 
 import pytest
 from datetime import date, datetime, timedelta
@@ -230,10 +230,11 @@ class TestRedeemWithLock:
         assert r.status_code == 200
         return r.json()["id"]
 
-    def add_lock(self, client, gid, admin_token, reward_id, task_id):
-        res = client.post("/api/admin/reward-locks", json={
-            "reward_id": reward_id, "task_id": task_id, "group_id": gid,
-        }, headers=admin_token)
+    def add_lock(self, client, gid, admin_token, reward_id, task_id, lock_group=1):
+        body = {"reward_id": reward_id, "task_id": task_id, "group_id": gid}
+        if lock_group is not None:
+            body["lock_group"] = lock_group
+        res = client.post("/api/admin/reward-locks", json=body, headers=admin_token)
         assert res.status_code == 200
 
     def complete_task(self, client, group_ctx, task_id, star=5):
@@ -288,8 +289,8 @@ class TestRedeemWithLock:
         tid1 = self.make_task(client, gid, admin_token, "每日阅读")
         tid2 = self.make_task(client, gid, admin_token, "每日运动")
         rid = self.make_reward(client, gid, admin_token, "电视时间")
-        self.add_lock(client, gid, admin_token, rid, tid1)
-        self.add_lock(client, gid, admin_token, rid, tid2)
+        self.add_lock(client, gid, admin_token, rid, tid1, lock_group=1)
+        self.add_lock(client, gid, admin_token, rid, tid2, lock_group=2)
 
         # Complete only the first key
         self.complete_task(client, group_ctx, tid1)
@@ -308,8 +309,8 @@ class TestRedeemWithLock:
         tid1 = self.make_task(client, gid, admin_token, "每日阅读")
         tid2 = self.make_task(client, gid, admin_token, "每日运动")
         rid = self.make_reward(client, gid, admin_token, "电视时间", cost=1)
-        self.add_lock(client, gid, admin_token, rid, tid1)
-        self.add_lock(client, gid, admin_token, rid, tid2)
+        self.add_lock(client, gid, admin_token, rid, tid1, lock_group=1)
+        self.add_lock(client, gid, admin_token, rid, tid2, lock_group=2)
 
         # Complete both keys
         self.complete_task(client, group_ctx, tid1)

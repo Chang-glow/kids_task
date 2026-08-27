@@ -1,18 +1,19 @@
 """奖励锁服务：reward ↔ task 多对多绑定，当日完成所有钥匙任务前禁止兑换。"""
 
 
-def add_reward_lock(cur, reward_id: int, task_id: int, group_id: int) -> dict:
-    """为奖励添加一个钥匙任务绑定。已存在则忽略。"""
+def add_reward_lock(cur, reward_id: int, task_id: int, group_id: int,
+                    lock_group: int | None = None) -> dict:
+    """为奖励添加一个钥匙任务绑定。已存在则更新分组，保证幂等。"""
     cur.execute(
-        """INSERT INTO reward_locks (reward_id, task_id, group_id)
-           VALUES (%s, %s, %s)
-           ON CONFLICT (reward_id, task_id) DO NOTHING""",
-        (reward_id, task_id, group_id),
+        """INSERT INTO reward_locks (reward_id, task_id, group_id, lock_group)
+           VALUES (%s, %s, %s, %s)
+           ON CONFLICT (reward_id, task_id) DO UPDATE SET lock_group = EXCLUDED.lock_group""",
+        (reward_id, task_id, group_id, lock_group),
     )
     cur.execute("SELECT name FROM tasks WHERE id = %s", (task_id,))
     row = cur.fetchone()
     return {"success": True, "reward_id": reward_id, "task_id": task_id,
-            "key_task_name": row["name"] if row else ""}
+            "key_task_name": row["name"] if row else "", "lock_group": lock_group}
 
 
 def remove_reward_lock(cur, reward_id: int, task_id: int, group_id: int) -> dict:
@@ -50,24 +51,35 @@ def check_reward_unlocked(cur, reward_id: int, group_id: int, today) -> tuple[bo
     """检查奖励是否可兑换。返回 (unlocked, reason)。
 
     无锁 → unlocked
-    所有钥匙任务今日均完成过 → unlocked
-    任一钥匙任务今日未完成 → locked，列出所有未完成的钥匙
+    钥匙按 lock_group 分组：同组内任选其一完成即可；每组都需至少一个完成。
+    lock_group 为 NULL 的任务不参与锁判定（既不要求完成，也不影响解锁）。
     """
     locks = get_reward_locks(cur, reward_id, group_id)
     if not locks:
         return True, ""
 
-    pending = []
+    def done_today(lock) -> bool:
+        return bool(lock["completed_at"]) and lock["completed_at"].date() == today
+
+    groups: dict = {}
     for lock in locks:
-        task_name = lock["key_task_name"]
-        completed_date = lock["completed_at"].date() if lock["completed_at"] else None
-        if completed_date == today:
+        if lock["lock_group"] is None:
+            continue  # 未分组的钥匙任务不参与锁判定
+        key = lock["lock_group"]
+        groups.setdefault(key, []).append(lock)
+
+    pending = []
+    for members in groups.values():
+        if any(done_today(m) for m in members):
             continue
-        pending.append(task_name)
+        names = [m["key_task_name"] for m in members]
+        if len(members) > 1:
+            pending.append(" / ".join(names) + "（任选其一）")
+        else:
+            pending.append(names[0])
 
     if pending:
-        names = "、".join(pending)
-        return False, f"🔒 需先完成「{names}」才能兑换此奖励"
+        return False, f"🔒 需先完成「{'、'.join(pending)}」才能兑换此奖励"
 
     return True, ""
 

@@ -252,8 +252,8 @@ class TestUnlockCouponRedeem:
         conn = get_db()
         cur = conn.cursor()
         cur.execute(
-            "INSERT INTO reward_locks (reward_id, task_id, group_id) VALUES (%s, %s, %s)",
-            (reward_id, key_task_id, group_ctx["id"]),
+            "INSERT INTO reward_locks (reward_id, task_id, group_id, lock_group) VALUES (%s, %s, %s, %s)",
+            (reward_id, key_task_id, group_ctx["id"], 1),
         )
         conn.commit()
         conn.close()
